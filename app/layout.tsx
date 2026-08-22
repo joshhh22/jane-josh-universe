@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/components/providers/AuthProvider";
 import { ToastProvider } from "@/components/providers/ToastProvider";
 import { CursorTrail } from "@/components/ui/CursorTrail";
+import { BgmPlayer } from "@/components/ui/BgmPlayer";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -49,6 +50,7 @@ export default function RootLayout({
           <ToastProvider>
             {children}
             <CursorTrail />
+            <BgmPlayer />
           </ToastProvider>
         </AuthProvider>
       </body>
