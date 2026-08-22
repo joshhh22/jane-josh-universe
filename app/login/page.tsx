@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useAuth } from "@/components/providers/AuthProvider";
@@ -18,8 +18,13 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (isAdmin) {
+      router.replace("/");
+    }
+  }, [isAdmin, router]);
+
   if (isAdmin) {
-    router.replace("/");
     return null;
   }
 
