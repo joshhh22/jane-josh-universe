@@ -15,7 +15,7 @@ export default function RoomPage() {
     { emoji: "💌", label: "Love Letter", desc: "Mailbox archive", href: "/letters", bg: "#FEF08A" },
     { emoji: "🎧", label: "Headphones", desc: "Shared playlist", href: "/music", bg: "#D8D2FF" },
     { emoji: "📸", label: "Polaroid Camera", desc: "Memory photos", href: "/memories", bg: "#BAE6FD" },
-    { emoji: "🪴", label: "Plant Pot", desc: "Surprise gift box", href: "/surprises", bg: "#BBF7D0" },
+    { emoji: "🌱", label: "Plant Pot", desc: "Surprise gift box", href: "/surprises", bg: "#BBF7D0" },
     { emoji: "🖥️", label: "Retro Computer", desc: "Secret love letter", href: "/secret", bg: "#FFAAA6" },
   ];
 
@@ -32,7 +32,7 @@ export default function RoomPage() {
                 <span>Interactive 3D Space</span>
               </div>
               <h1 className="font-display font-black text-3xl sm:text-4xl text-[#2C2824]">
-                our little room 🪄
+                our little room ✨
               </h1>
               <p className="font-hand text-xl text-[#7A7269] mt-0.5">
                 click and interact with objects inside our shared bedroom
