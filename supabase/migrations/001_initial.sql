@@ -166,8 +166,8 @@ CREATE TABLE public.reactions (
 
 -- ─── SEED DATA ────────────────────────────────────────────────
 
--- Virtual pet
-INSERT INTO public.pet (name, hunger, happiness) VALUES ('Biscuit', 75, 85);
+-- Virtual pet (JJ)
+INSERT INTO public.pet (name, hunger, happiness) VALUES ('JJ', 100, 100);
 
 -- Jane Lore seed (Favorit: Ayam Geprek!)
 INSERT INTO public.jane_lore (category, key, value, emoji) VALUES
