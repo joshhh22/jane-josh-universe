@@ -1,69 +1,170 @@
-import Image from "next/image";
+"use client";
+
+export const dynamic = "force-dynamic";
+
+import { motion } from "framer-motion";
+import { NavBar } from "@/components/layout/NavBar";
+import { RoomPreviewCard } from "@/components/cards/RoomPreviewCard";
+import { JaneLorePreviewCard } from "@/components/cards/JaneLorePreviewCard";
+import { MoodWidget } from "@/components/cards/MoodWidget";
+import { LetterCountCard } from "@/components/cards/LetterCountCard";
+import { MusicPreviewCard } from "@/components/cards/MusicPreviewCard";
+import { MemoryPreviewCard } from "@/components/cards/MemoryPreviewCard";
+import { DailyQuestionCard } from "@/components/cards/DailyQuestionCard";
+import { StatsCard } from "@/components/cards/StatsCard";
+import { PetWidget } from "@/components/cards/PetWidget";
+import { SurpriseCountCard } from "@/components/cards/SurpriseCountCard";
+import { Sparkles, Heart } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="min-h-screen flex flex-col justify-between selection:bg-[#FFD1DC] selection:text-[#23201D]">
+      <div>
+        <NavBar />
+
+        <main className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-7">
+          {/* Header Hero Section */}
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-3 border-b-2 border-[#23201D]/10"
+          >
+            <div>
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FEF08A] border-2 border-[#23201D] shadow-[2px_2px_0px_#23201D] text-xs font-display font-bold uppercase tracking-wider mb-2">
+                <Sparkles size={12} className="text-[#23201D]" />
+                <span>Our Digital Universe</span>
+              </div>
+              <h1 className="font-display font-black text-4xl sm:text-5xl lg:text-6xl tracking-tight text-[#23201D]">
+                jane <span className="text-[#FF8FAB] font-normal">&amp;</span> josh
+              </h1>
+              <p className="font-hand text-xl sm:text-2xl text-[#6E675F] mt-1">
+                a tiny interactive corner of the internet made just for us 🌸
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="bg-[#FFFFFF] border-2 border-[#23201D] rounded-xl px-3.5 py-1.5 shadow-[2.5px_2.5px_0px_#23201D] flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse border border-[#23201D]" />
+                <span className="font-display font-bold text-xs text-[#23201D]">universe server: online</span>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Bento Grid Layout */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
+            {/* ROW 1: 3D Room (7 cols) + Jane Lore (5 cols) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05 }}
+              className="md:col-span-7 h-[360px] sm:h-[400px]"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+              <RoomPreviewCard />
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
+              className="md:col-span-5 h-[360px] sm:h-[400px]"
             >
-              Learning
-            </a>{" "}
-            center.
+              <JaneLorePreviewCard />
+            </motion.div>
+
+            {/* ROW 2: 3 Equal-Width Cards (4 cols each) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="md:col-span-4 min-h-[220px]"
+            >
+              <MoodWidget />
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="md:col-span-4 min-h-[220px]"
+            >
+              <LetterCountCard />
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="md:col-span-4 min-h-[220px]"
+            >
+              <SurpriseCountCard />
+            </motion.div>
+
+            {/* ROW 3: Soundtrack (6 cols) + Memory Archive (6 cols) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="md:col-span-6 min-h-[240px]"
+            >
+              <MusicPreviewCard />
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+              className="md:col-span-6 min-h-[240px]"
+            >
+              <MemoryPreviewCard />
+            </motion.div>
+
+            {/* ROW 4: Pet Widget (6 cols) + Daily Question (6 cols) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="md:col-span-6 min-h-[240px]"
+            >
+              <PetWidget />
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.45 }}
+              className="md:col-span-6 min-h-[240px]"
+            >
+              <DailyQuestionCard />
+            </motion.div>
+
+            {/* ROW 5: Stats Card (12 cols) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              className="md:col-span-12"
+            >
+              <StatsCard />
+            </motion.div>
+          </div>
+        </main>
+      </div>
+
+      {/* Footer */}
+      <footer className="w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 border-t-2 border-[#23201D]/10 mt-12">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left">
+          <div className="flex items-center gap-2 font-display font-bold text-xs text-[#23201D]">
+            <span>made with</span>
+            <Heart size={14} className="fill-[#FF8FAB] text-[#FF8FAB] animate-pulse" />
+            <span>for jane bernadine by josh</span>
+          </div>
+
+          <p className="font-hand text-base text-[#6E675F]">
+            psst... try pressing ↑ ↑ ↓ ↓ ← → ← → B A on your keyboard 🎮
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </footer>
     </div>
   );
 }
