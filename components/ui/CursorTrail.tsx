@@ -6,9 +6,9 @@ export function CursorTrail() {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const hearts = ["💗", "🌸", "✨", "💕", "⭐", "🌷"];
+    const hearts = ["💗", "🌸", "✨", "💕", "⭐"];
     let lastTime = 0;
-    const minInterval = 80; // ms between hearts
+    const minInterval = 120; // Throttle to prevent high CPU / lag
 
     const handleMouseMove = (e: MouseEvent) => {
       const now = Date.now();
@@ -16,17 +16,32 @@ export function CursorTrail() {
       lastTime = now;
 
       const el = document.createElement("span");
-      el.className = "cursor-heart";
       el.textContent = hearts[Math.floor(Math.random() * hearts.length)];
-      el.style.left = `${e.clientX - 8}px`;
-      el.style.top = `${e.clientY - 8}px`;
+      el.style.position = "fixed";
+      el.style.pointerEvents = "none"; // CRITICAL: Never block clicks!
+      el.style.userSelect = "none";
+      el.style.zIndex = "99999";
+      el.style.fontSize = "14px";
+      el.style.left = `${e.clientX - 7}px`;
+      el.style.top = `${e.clientY - 7}px`;
+      el.style.transition = "transform 0.6s ease-out, opacity 0.6s ease-out";
+      el.style.opacity = "1";
+
       document.body.appendChild(el);
-      setTimeout(() => el.remove(), 800);
+
+      requestAnimationFrame(() => {
+        el.style.transform = `translateY(-20px) scale(0.6)`;
+        el.style.opacity = "0";
+      });
+
+      setTimeout(() => {
+        el.remove();
+      }, 600);
     };
 
-    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mousemove", handleMouseMove, { passive: true });
     return () => window.removeEventListener("mousemove", handleMouseMove);
   }, []);
 
-  return <div ref={containerRef} />;
+  return <div ref={containerRef} className="pointer-events-none" />;
 }
