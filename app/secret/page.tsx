@@ -67,29 +67,32 @@ export default function SecretPage() {
 
         {/* Text Feed */}
         <div className="space-y-1.5 text-xs sm:text-sm leading-relaxed min-h-[300px]">
-          {shown.map((line, idx) => (
-            <motion.p
-              key={idx}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className={
-                line.startsWith(">")
-                  ? "text-[#BAE6FD]/80"
-                  : line === ""
-                  ? "h-2"
-                  : line.startsWith("—")
-                  ? "text-[#FFCCD5] font-bold text-base mt-3"
-                  : line.includes("jane")
-                  ? "text-[#FFCCD5] font-bold"
-                  : "text-[#FAF5EE]"
-              }
-            >
-              {line}
-              {idx === shown.length - 1 && !done && (
-                <span className="inline-block w-2 h-4 ml-1 bg-[#FEF08A] animate-pulse" />
-              )}
-            </motion.p>
-          ))}
+          {shown.map((line, idx) => {
+            const text = line ?? "";
+            return (
+              <motion.p
+                key={idx}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className={
+                  text.startsWith(">")
+                    ? "text-[#BAE6FD]/80"
+                    : text === ""
+                    ? "h-2"
+                    : text.startsWith("—")
+                    ? "text-[#FFCCD5] font-bold text-base mt-3"
+                    : text.toLowerCase().includes("jane")
+                    ? "text-[#FFCCD5] font-bold"
+                    : "text-[#FAF5EE]"
+                }
+              >
+                {text}
+                {idx === shown.length - 1 && !done && (
+                  <span className="inline-block w-2 h-4 ml-1 bg-[#FEF08A] animate-pulse" />
+                )}
+              </motion.p>
+            );
+          })}
         </div>
 
         {/* Footer Actions */}

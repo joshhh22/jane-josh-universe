@@ -30,7 +30,7 @@ const DEFAULT_LORE = [
   { id: "2", category: "stats", key: "chaos", value: "40", emoji: "⚡" },
   { id: "3", category: "stats", key: "sleepiness", value: "85", emoji: "😴" },
   { id: "4", category: "stats", key: "loveliness", value: "9999", emoji: "💗" },
-  { id: "5", category: "favorites", key: "food", value: "Ramen & Sweet Drinks", emoji: "🍜" },
+  { id: "5", category: "favorites", key: "food", value: "Ayam Geprek 🍗🌶️", emoji: "🍗" },
   { id: "6", category: "favorites", key: "song", value: "Late night acoustic tracks", emoji: "🎵" },
   { id: "7", category: "favorites", key: "movie", value: "Studio Ghibli & Comfort films", emoji: "🎬" },
   { id: "8", category: "favorites", key: "place", value: "Any cozy couch under a blanket", emoji: "📍" },

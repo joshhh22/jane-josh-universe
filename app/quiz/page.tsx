@@ -38,9 +38,9 @@ const DEFAULT_QUESTIONS = [
   {
     id: "4",
     question: "If Jane could eat one comfort meal forever, it would be...",
-    options: ["Hot ramen & savory noodles 🍜", "Dry salad without dressing 🥗", "Plain crackers 🍪", "Black coffee only ☕"],
+    options: ["Ayam Geprek pedas 🍗🌶️", "Dry salad without dressing 🥗", "Plain crackers 🍪", "Black coffee only ☕"],
     correct_index: 0,
-    hint: "warm and cozy food",
+    hint: "pedas dan gurih",
     created_at: new Date().toISOString(),
   },
   {
