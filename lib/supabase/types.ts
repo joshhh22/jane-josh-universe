@@ -177,6 +177,8 @@ export interface Database {
           options: string[];
           correct_index: number;
           hint: string | null;
+          creator?: string | null;
+          target?: string | null;
           created_at: string;
         };
         Insert: Omit<Database["public"]["Tables"]["quiz_questions"]["Row"], "id" | "created_at">;

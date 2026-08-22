@@ -150,6 +150,8 @@ CREATE TABLE public.quiz_questions (
   options JSONB NOT NULL,
   correct_index INTEGER NOT NULL,
   hint TEXT,
+  creator TEXT NOT NULL DEFAULT 'josh',
+  target TEXT NOT NULL DEFAULT 'jane',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
