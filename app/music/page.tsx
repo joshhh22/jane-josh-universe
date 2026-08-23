@@ -22,8 +22,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_v7_clean";
-const STORAGE_DELETED_KEY = "jane_josh_deleted_song_keys_v2";
+const STORAGE_SONGS_KEY = "jane_josh_songs_v8_master";
 
 // Search Result Item Type
 interface SearchTrackResult {
@@ -35,7 +34,7 @@ interface SearchTrackResult {
   spotifyUrl: string;
 }
 
-// Default Permanent Starter Songs
+// Initial Starter Songs (Only used on very first visit if empty)
 const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] = [
   {
     id: "song_1",
@@ -87,27 +86,6 @@ const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] =
   },
 ];
 
-// Helper to get tombstone deleted keys
-const getDeletedKeys = (): string[] => {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_DELETED_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-};
-
-const saveDeletedKey = (key: string) => {
-  if (typeof window === "undefined" || !key) return;
-  const current = getDeletedKeys();
-  const lower = key.trim().toLowerCase();
-  if (!current.includes(lower)) {
-    current.push(lower);
-    localStorage.setItem(STORAGE_DELETED_KEY, JSON.stringify(current));
-  }
-};
-
 // Spotify Icon Component
 function SpotifyIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
@@ -150,7 +128,7 @@ function MusicLetterCard({
           <span>{isFromJane ? "🌸" : "💻"}</span>
         </div>
 
-        {/* Delete Button (If Admin) */}
+        {/* Delete Button */}
         {isAdmin && (
           <button
             onClick={() => onDelete(song)}
@@ -172,7 +150,7 @@ function MusicLetterCard({
       {/* Bottom Row: Spotify Song Banner */}
       <div className="p-3.5 bg-[#F3F4F6] border-t-2 border-[#2C2824]/10 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          {/* Real High-Res Album Cover Art */}
+          {/* High-Res Album Cover Art */}
           <img
             src={defaultCover}
             alt={song.title}
@@ -237,97 +215,31 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initial Load: Read strictly from LocalStorage or initialize once
+  // 1. Initial Load: Clean up any old toxic tombstone keys from earlier versions
   useEffect(() => {
-    const deletedKeys = getDeletedKeys();
-
     if (typeof window !== "undefined") {
       try {
+        localStorage.removeItem("jane_josh_deleted_song_keys_v1");
+        localStorage.removeItem("jane_josh_deleted_song_keys_v2");
+        localStorage.removeItem("jane_josh_deleted_song_keys_v3");
+
         const stored = localStorage.getItem(STORAGE_SONGS_KEY);
         if (stored !== null) {
-          // User already has an initialized state (could be empty [] if deleted all, or have custom songs)
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
-            const filtered = parsed.filter(
-              (s) =>
-                !deletedKeys.includes(s.id?.toLowerCase()) &&
-                !deletedKeys.includes(s.title?.trim().toLowerCase())
-            );
-            setSongs(filtered);
-            loadAndMergeSupabase(filtered);
+            setSongs(parsed);
             return;
           }
+        } else {
+          // First time opening: initialize with default songs
+          setSongs(DEFAULT_SONGS);
+          localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(DEFAULT_SONGS));
         }
       } catch (e) {
         console.error("LocalStorage load error:", e);
       }
     }
-
-    // First time visitor only
-    const initialList = DEFAULT_SONGS.filter(
-      (s) =>
-        !deletedKeys.includes(s.id?.toLowerCase()) &&
-        !deletedKeys.includes(s.title?.trim().toLowerCase())
-    );
-    setSongs(initialList);
-    loadAndMergeSupabase(initialList);
   }, []);
-
-  const loadAndMergeSupabase = async (
-    baseLocalList: (Song & { album_cover?: string | null; sender_name?: string | null })[]
-  ) => {
-    const deletedKeys = getDeletedKeys();
-    try {
-      const { data: dbSongs, error } = await supabase
-        .from("songs")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (!error && dbSongs) {
-        const songMap = new Map<string, any>();
-
-        // 1. Add base local songs (filtering out any deleted keys)
-        baseLocalList.forEach((s) => {
-          const key = s.title?.trim().toLowerCase();
-          if (
-            key &&
-            !deletedKeys.includes(s.id?.toLowerCase()) &&
-            !deletedKeys.includes(key)
-          ) {
-            songMap.set(key, s);
-          }
-        });
-
-        // 2. Add DB songs ONLY if NOT deleted and NOT already in local
-        dbSongs.forEach((dbS) => {
-          const key = dbS.title?.trim().toLowerCase();
-          if (
-            key &&
-            !deletedKeys.includes(dbS.id?.toLowerCase()) &&
-            !deletedKeys.includes(key)
-          ) {
-            if (!songMap.has(key)) {
-              songMap.set(key, {
-                ...dbS,
-                sender_name: dbS.recipient === "josh" ? "jane" : "josh",
-              });
-            }
-          }
-        });
-
-        const merged = Array.from(songMap.values()).sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-
-        setSongs(merged);
-        if (typeof window !== "undefined") {
-          localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(merged));
-        }
-      }
-    } catch (err) {
-      console.error("Supabase fetch error:", err);
-    }
-  };
 
   const persistSongs = (updated: typeof songs) => {
     setSongs(updated);
@@ -441,13 +353,13 @@ export default function MusicPage() {
       created_at: new Date().toISOString(),
     };
 
-    // Update state & LocalStorage
+    // 1. Immediately persist to LocalStorage and State (Bulletproof)
     const updated = [newSong, ...songs];
     persistSongs(updated);
 
-    // Background Sync to Supabase
+    // 2. Background Sync to Supabase
     try {
-      const { error } = await supabase.from("songs").insert({
+      await supabase.from("songs").insert({
         title: newSong.title,
         artist: newSong.artist,
         url: newSong.url,
@@ -456,18 +368,8 @@ export default function MusicPage() {
         reason: newSong.reason,
         added_by: fallbackUserId,
       });
-
-      if (error) {
-        await supabase.from("songs").insert({
-          title: newSong.title,
-          artist: newSong.artist,
-          url: newSong.url,
-          reason: newSong.reason,
-          added_by: fallbackUserId,
-        });
-      }
     } catch (err) {
-      console.error("Supabase insert error:", err);
+      console.error("Supabase insert:", err);
     }
 
     showToast(`Music letter sent From: ${formSender === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
@@ -481,25 +383,19 @@ export default function MusicPage() {
     setAdding(false);
   };
 
-  // Permanent Delete Song (Tombstone + Supabase deletion by ID & Title)
+  // Delete Song
   const handleDeleteSong = async (
     songToDelete: Song & { album_cover?: string | null; sender_name?: string | null }
   ) => {
-    const cleanTitle = songToDelete.title?.trim().toLowerCase();
-    
-    // 1. Record in tombstone list so it NEVER gets revived
-    if (songToDelete.id) saveDeletedKey(songToDelete.id);
-    if (cleanTitle) saveDeletedKey(cleanTitle);
-
-    // 2. Remove immediately from local state & LocalStorage
+    // 1. Immediately remove from State and LocalStorage
     const updated = songs.filter(
       (s) =>
         s.id !== songToDelete.id &&
-        s.title?.trim().toLowerCase() !== cleanTitle
+        s.title?.trim().toLowerCase() !== songToDelete.title?.trim().toLowerCase()
     );
     persistSongs(updated);
 
-    // 3. Delete from Supabase
+    // 2. Delete from Supabase
     try {
       if (songToDelete.id) {
         await supabase.from("songs").delete().eq("id", songToDelete.id);
@@ -650,7 +546,7 @@ export default function MusicPage() {
                             onFocus={() => {
                               if (searchResults.length > 0) setShowDropdown(true);
                             }}
-                            placeholder="Search and select your song (e.g. Best Part, Lucky, Apocalypse, Lover)"
+                            placeholder="Search and select your song (e.g. Every Way, Best Part, Lucky, Lover)"
                             className="w-full border-2 border-[#2C2824] rounded-xl px-4 py-2.5 pl-10 text-sm font-body bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824]"
                           />
                           <Search
@@ -738,7 +634,7 @@ export default function MusicPage() {
                       <textarea
                         value={formReason}
                         onChange={(e) => setFormReason(e.target.value)}
-                        placeholder="e.g. 'YOU ARE MY BEST PARTT ♡'"
+                        placeholder="e.g. 'thankss for loving me as always bebeeeee ♡'"
                         rows={3}
                         required
                         className="w-full border-2 border-[#2C2824] rounded-xl px-3.5 py-2.5 text-base font-hand bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824] resize-none"
