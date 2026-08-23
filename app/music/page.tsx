@@ -22,7 +22,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_real_user_only";
+const STORAGE_SONGS_KEY = "jane_josh_songs_v9_perfect";
+const STORAGE_BLACKLIST_KEY = "jane_josh_deleted_blacklist_v4";
 
 // Search Result Item Type
 interface SearchTrackResult {
@@ -33,6 +34,34 @@ interface SearchTrackResult {
   previewUrl?: string;
   spotifyUrl: string;
 }
+
+// Helpers for Blacklist management
+const getBlacklist = (): string[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_BLACKLIST_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const addToBlacklist = (keys: string[]) => {
+  if (typeof window === "undefined") return;
+  const current = getBlacklist();
+  keys.forEach((k) => {
+    const clean = k?.trim().toLowerCase();
+    if (clean && !current.includes(clean)) current.push(clean);
+  });
+  localStorage.setItem(STORAGE_BLACKLIST_KEY, JSON.stringify(current));
+};
+
+const removeFromBlacklist = (key: string) => {
+  if (typeof window === "undefined" || !key) return;
+  const clean = key.trim().toLowerCase();
+  const current = getBlacklist().filter((k) => k !== clean);
+  localStorage.setItem(STORAGE_BLACKLIST_KEY, JSON.stringify(current));
+};
 
 // Spotify Icon Component
 function SpotifyIcon({ className = "w-5 h-5" }: { className?: string }) {
@@ -145,7 +174,6 @@ export default function MusicPage() {
   const { showToast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
-  // Pure clean state: NO DUMMY SONGS
   const [songs, setSongs] = useState<(Song & { album_cover?: string | null; sender_name?: string | null })[]>([]);
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
@@ -164,26 +192,22 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initial Load: Load strictly user added songs from LocalStorage & Supabase
+  // 1. Initial Load: Read strictly from LocalStorage and filter out blacklisted deleted titles
   useEffect(() => {
+    const blacklist = getBlacklist();
+
     if (typeof window !== "undefined") {
       try {
-        // Clean all old dummy keys
-        localStorage.removeItem("jane_josh_songs_v2");
-        localStorage.removeItem("jane_josh_songs_v3_from");
-        localStorage.removeItem("jane_josh_songs_v4_search");
-        localStorage.removeItem("jane_josh_songs_v5_permanent");
-        localStorage.removeItem("jane_josh_songs_v6_sync");
-        localStorage.removeItem("jane_josh_songs_v7_clean");
-        localStorage.removeItem("jane_josh_songs_v8_master");
-        localStorage.removeItem("jane_josh_deleted_song_keys_v1");
-        localStorage.removeItem("jane_josh_deleted_song_keys_v2");
-
         const stored = localStorage.getItem(STORAGE_SONGS_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
-            setSongs(parsed);
+            const filtered = parsed.filter(
+              (s) =>
+                !blacklist.includes(s.id?.toLowerCase()) &&
+                !blacklist.includes(s.title?.trim().toLowerCase())
+            );
+            setSongs(filtered);
           }
         }
       } catch (e) {
@@ -196,6 +220,7 @@ export default function MusicPage() {
   }, []);
 
   const fetchSupabaseSongs = async () => {
+    const blacklist = getBlacklist();
     try {
       const { data: dbSongs } = await supabase
         .from("songs")
@@ -203,35 +228,42 @@ export default function MusicPage() {
         .order("created_at", { ascending: false });
 
       if (dbSongs && dbSongs.length > 0) {
-        // Filter out any default dummy rows from old seed
-        const realDbSongs = dbSongs.filter(
-          (s) =>
-            s.title !== "Apocalypse" &&
-            s.title !== "seasons" &&
-            s.title !== "double take" &&
-            s.title !== "Lover"
-        );
+        // Filter out dummy songs AND any blacklisted deleted songs
+        const realDbSongs = dbSongs.filter((s) => {
+          const titleLower = s.title?.trim().toLowerCase();
+          const isDummy =
+            titleLower === "apocalypse" ||
+            titleLower === "seasons" ||
+            titleLower === "double take" ||
+            titleLower === "lover";
+          const isBlacklisted = blacklist.includes(s.id?.toLowerCase()) || blacklist.includes(titleLower);
+          return !isDummy && !isBlacklisted;
+        });
 
-        if (realDbSongs.length > 0) {
-          setSongs((current) => {
-            const map = new Map<string, any>();
-            current.forEach((s) => map.set(s.title.toLowerCase(), s));
-            realDbSongs.forEach((dbS) => {
-              const key = dbS.title.toLowerCase();
-              if (!map.has(key)) {
-                map.set(key, {
-                  ...dbS,
-                  sender_name: dbS.recipient === "josh" ? "jane" : "josh",
-                });
-              }
-            });
-            const merged = Array.from(map.values());
-            if (typeof window !== "undefined") {
-              localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(merged));
+        setSongs((current) => {
+          const map = new Map<string, any>();
+          current.forEach((s) => {
+            if (!blacklist.includes(s.title?.trim().toLowerCase())) {
+              map.set(s.title?.trim().toLowerCase(), s);
             }
-            return merged;
           });
-        }
+
+          realDbSongs.forEach((dbS) => {
+            const key = dbS.title?.trim().toLowerCase();
+            if (!map.has(key)) {
+              map.set(key, {
+                ...dbS,
+                sender_name: dbS.recipient === "josh" ? "jane" : "josh",
+              });
+            }
+          });
+
+          const merged = Array.from(map.values());
+          if (typeof window !== "undefined") {
+            localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(merged));
+          }
+          return merged;
+        });
       }
     } catch (err) {
       console.error(err);
@@ -337,6 +369,9 @@ export default function MusicPage() {
         ? "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe"
         : "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832");
 
+    // Remove from blacklist in case user previously deleted this song
+    removeFromBlacklist(selectedTrack.trackName);
+
     const newSong = {
       id: newSongId,
       title: selectedTrack.trackName,
@@ -380,11 +415,15 @@ export default function MusicPage() {
     setAdding(false);
   };
 
-  // Delete Song
+  // Delete Song with Guaranteed Blacklist Filter
   const handleDeleteSong = async (
     songToDelete: Song & { album_cover?: string | null; sender_name?: string | null }
   ) => {
-    // 1. Immediately remove from State and LocalStorage
+    // 1. Add to blacklist so Supabase refresh never resurrects it
+    const keysToBlacklist = [songToDelete.id, songToDelete.title];
+    addToBlacklist(keysToBlacklist);
+
+    // 2. Immediately remove from State and LocalStorage
     const updated = songs.filter(
       (s) =>
         s.id !== songToDelete.id &&
@@ -392,7 +431,7 @@ export default function MusicPage() {
     );
     persistSongs(updated);
 
-    // 2. Delete from Supabase
+    // 3. Delete from Supabase
     try {
       if (songToDelete.id) {
         await supabase.from("songs").delete().eq("id", songToDelete.id);
@@ -543,7 +582,7 @@ export default function MusicPage() {
                             onFocus={() => {
                               if (searchResults.length > 0) setShowDropdown(true);
                             }}
-                            placeholder="Search and select your song (e.g. Every Way, Best Part, Lucky, Lover)"
+                            placeholder="Search and select your song (e.g. Best Part, Lucky, Apocalypse, Lover)"
                             className="w-full border-2 border-[#2C2824] rounded-xl px-4 py-2.5 pl-10 text-sm font-body bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824]"
                           />
                           <Search
@@ -631,7 +670,7 @@ export default function MusicPage() {
                       <textarea
                         value={formReason}
                         onChange={(e) => setFormReason(e.target.value)}
-                        placeholder="e.g. 'thankss for loving me as always bebeeeee ♡'"
+                        placeholder="e.g. 'YOU ARE MY BEST PARTT ♡'"
                         rows={3}
                         required
                         className="w-full border-2 border-[#2C2824] rounded-xl px-3.5 py-2.5 text-base font-hand bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824] resize-none"

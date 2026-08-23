@@ -237,6 +237,7 @@ CREATE POLICY "letters_update" ON public.letters FOR UPDATE TO authenticated USI
 -- Songs
 CREATE POLICY "songs_read" ON public.songs FOR SELECT USING (true);
 CREATE POLICY "songs_insert" ON public.songs FOR INSERT TO authenticated WITH CHECK (auth.uid() = added_by);
+CREATE POLICY "songs_delete" ON public.songs FOR DELETE USING (true);
 
 -- Memories
 CREATE POLICY "memories_read" ON public.memories FOR SELECT USING (true);
