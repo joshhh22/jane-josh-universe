@@ -22,7 +22,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_v5_permanent";
+const STORAGE_SONGS_KEY = "jane_josh_songs_v6_sync";
+const STORAGE_DELETED_KEY = "jane_josh_deleted_song_keys_v1";
 
 // Search Result Item Type
 interface SearchTrackResult {
@@ -86,6 +87,26 @@ const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] =
   },
 ];
 
+// Helper to get tombstone deleted keys
+const getDeletedKeys = (): string[] => {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveDeletedKey = (key: string) => {
+  if (typeof window === "undefined") return;
+  const current = getDeletedKeys();
+  if (!current.includes(key)) {
+    current.push(key);
+    localStorage.setItem(STORAGE_DELETED_KEY, JSON.stringify(current));
+  }
+};
+
 // Spotify Icon Component
 function SpotifyIcon({ className = "w-5 h-5" }: { className?: string }) {
   return (
@@ -95,7 +116,7 @@ function SpotifyIcon({ className = "w-5 h-5" }: { className?: string }) {
   );
 }
 
-// ─── MUSIC LETTER CARD (Matches Screenshot Exactly with "From:") ──────────
+// ─── MUSIC LETTER CARD ───────────────────────────────────────────
 function MusicLetterCard({
   song,
   isAdmin,
@@ -103,7 +124,7 @@ function MusicLetterCard({
 }: {
   song: Song & { album_cover?: string | null; sender_name?: string | null };
   isAdmin: boolean;
-  onDelete: (id: string) => void;
+  onDelete: (song: Song & { album_cover?: string | null; sender_name?: string | null }) => void;
 }) {
   const isFromJane = song.sender_name === "jane";
   const senderLabel = isFromJane ? "jane" : "josh";
@@ -121,7 +142,7 @@ function MusicLetterCard({
     >
       {/* Top Header Row */}
       <div className="p-4 pb-1 flex items-center justify-between">
-        {/* Sender Pill: "From: marcel" style */}
+        {/* Sender Pill */}
         <div className="bg-[#FAF5EE] border border-[#2C2824]/20 px-3 py-1 rounded-full flex items-center gap-1.5 text-xs font-display font-bold text-[#2C2824]">
           <span className="text-[#7A7269] font-normal">From:</span>
           <span>{senderLabel}</span>
@@ -131,7 +152,7 @@ function MusicLetterCard({
         {/* Delete Button (If Admin) */}
         {isAdmin && (
           <button
-            onClick={() => onDelete(song.id)}
+            onClick={() => onDelete(song)}
             className="p-1.5 text-[#7A7269] hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
             title="Delete this song letter"
           >
@@ -201,7 +222,7 @@ export default function MusicPage() {
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
 
-  // Search Combobox State (As seen in screenshot)
+  // Search Combobox State
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchTrackResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -215,31 +236,35 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initial Load: Read from LocalStorage immediately for instant persistent render
+  // 1. Initial Load: Read from LocalStorage immediately, filtering out deleted tombstones
   useEffect(() => {
-    let initialSongs = DEFAULT_SONGS;
+    const deletedKeys = getDeletedKeys();
+    let initialList = DEFAULT_SONGS.filter(
+      (s) => !deletedKeys.includes(s.id) && !deletedKeys.includes(s.title.toLowerCase())
+    );
+
     if (typeof window !== "undefined") {
       try {
         const stored = localStorage.getItem(STORAGE_SONGS_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed) && parsed.length > 0) {
-            initialSongs = parsed;
-            setSongs(parsed);
+            initialList = parsed.filter(
+              (s) => !deletedKeys.includes(s.id) && !deletedKeys.includes(s.title?.toLowerCase())
+            );
           }
-        } else {
-          localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(DEFAULT_SONGS));
         }
       } catch (e) {
         console.error("LocalStorage load error:", e);
       }
     }
 
-    // 2. Fetch from Supabase and merge without wiping local additions
-    loadAndMergeSupabase(initialSongs);
+    setSongs(initialList);
+    loadAndMergeSupabase(initialList);
   }, []);
 
   const loadAndMergeSupabase = async (baseLocalList: typeof DEFAULT_SONGS) => {
+    const deletedKeys = getDeletedKeys();
     try {
       const { data: dbSongs, error } = await supabase
         .from("songs")
@@ -249,15 +274,21 @@ export default function MusicPage() {
       if (!error && dbSongs && dbSongs.length > 0) {
         const songMap = new Map<string, any>();
 
-        // First add base / local songs (keeps user created items)
-        baseLocalList.forEach((s) => songMap.set(s.id, s));
+        // 1. Add base local songs (filtering out any deleted keys)
+        baseLocalList.forEach((s) => {
+          if (!deletedKeys.includes(s.id) && !deletedKeys.includes(s.title?.toLowerCase())) {
+            songMap.set(s.title.toLowerCase(), s);
+          }
+        });
 
-        // Add / merge DB songs
+        // 2. Add DB songs (filtering out deleted keys)
         dbSongs.forEach((dbS) => {
-          songMap.set(dbS.id, {
-            ...dbS,
-            sender_name: dbS.recipient === "josh" ? "jane" : "josh",
-          });
+          if (!deletedKeys.includes(dbS.id) && !deletedKeys.includes(dbS.title?.toLowerCase())) {
+            songMap.set(dbS.title.toLowerCase(), {
+              ...dbS,
+              sender_name: dbS.recipient === "josh" ? "jane" : "josh",
+            });
+          }
         });
 
         const merged = Array.from(songMap.values()).sort(
@@ -287,7 +318,7 @@ export default function MusicPage() {
     if (isJosh) setFormSender("josh");
   }, [isJosh, isJane]);
 
-  // Handle Search Input & Debounce (Like user's screenshot)
+  // Handle Search Input & Debounce
   useEffect(() => {
     if (!searchQuery.trim() || selectedTrack) {
       setSearchResults([]);
@@ -328,7 +359,7 @@ export default function MusicPage() {
     return () => clearTimeout(timer);
   }, [searchQuery, selectedTrack]);
 
-  // Click outside listener to close dropdown
+  // Click outside listener
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
@@ -339,7 +370,6 @@ export default function MusicPage() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Select track from dropdown
   const handleSelectTrack = (track: SearchTrackResult) => {
     setSelectedTrack(track);
     setSearchQuery(track.trackName + " - " + track.artistName);
@@ -347,7 +377,6 @@ export default function MusicPage() {
     showToast(`Selected: ${track.trackName} 🎵`, { emoji: "✨" });
   };
 
-  // Reset selected track
   const handleResetSelectedTrack = () => {
     setSelectedTrack(null);
     setSearchQuery("");
@@ -355,7 +384,7 @@ export default function MusicPage() {
     setShowDropdown(false);
   };
 
-  // Add Song Letter with Guaranteed Dual-Persistence
+  // Add Song Letter
   const addSong = async () => {
     if (!selectedTrack || !formReason.trim()) {
       showToast("Please search & select a song, and write your mini letter!", {
@@ -388,11 +417,11 @@ export default function MusicPage() {
       created_at: new Date().toISOString(),
     };
 
-    // 1. Immediately update client state & LocalStorage (Permanent!)
+    // Update state & LocalStorage
     const updated = [newSong, ...songs];
     persistSongs(updated);
 
-    // 2. Background Sync to Supabase
+    // Background Sync to Supabase
     try {
       const { error } = await supabase.from("songs").insert({
         title: newSong.title,
@@ -405,7 +434,6 @@ export default function MusicPage() {
       });
 
       if (error) {
-        console.warn("Supabase standard insert fallback:", error);
         await supabase.from("songs").insert({
           title: newSong.title,
           artist: newSong.artist,
@@ -429,18 +457,27 @@ export default function MusicPage() {
     setAdding(false);
   };
 
-  // Delete Song
-  const handleDeleteSong = async (id: string) => {
-    const updated = songs.filter((s) => s.id !== id);
+  // Permanent Delete Song (Tombstone + Supabase deletion by ID & Title)
+  const handleDeleteSong = async (songToDelete: Song & { album_cover?: string | null; sender_name?: string | null }) => {
+    // 1. Record in tombstone list so it NEVER gets revived on reload
+    saveDeletedKey(songToDelete.id);
+    saveDeletedKey(songToDelete.title.toLowerCase());
+
+    // 2. Remove immediately from local state
+    const updated = songs.filter(
+      (s) => s.id !== songToDelete.id && s.title.toLowerCase() !== songToDelete.title.toLowerCase()
+    );
     persistSongs(updated);
 
+    // 3. Delete from Supabase both by ID and by Title (case-insensitive)
     try {
-      await supabase.from("songs").delete().eq("id", id);
+      await supabase.from("songs").delete().eq("id", songToDelete.id);
+      await supabase.from("songs").delete().ilike("title", songToDelete.title);
     } catch (err) {
-      console.error(err);
+      console.error("Supabase delete error:", err);
     }
 
-    showToast("Song letter removed 🗑️", { emoji: "🗑️" });
+    showToast("Song letter permanently removed 🗑️", { emoji: "🗑️" });
   };
 
   // Filter songs
@@ -562,7 +599,7 @@ export default function MusicPage() {
                       </div>
                     </div>
 
-                    {/* ─── LIVE SONG SEARCH COMBOBOX (Matching Screenshot) ─── */}
+                    {/* ─── LIVE SONG SEARCH COMBOBOX ─── */}
                     <div className="space-y-1.5 relative" ref={searchContainerRef}>
                       <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824] block">
                         Song
@@ -593,7 +630,7 @@ export default function MusicPage() {
                             />
                           )}
 
-                          {/* Dropdown Results List (Like Screenshot) */}
+                          {/* Dropdown Results List */}
                           <AnimatePresence>
                             {showDropdown && searchResults.length > 0 && (
                               <motion.div
@@ -608,7 +645,6 @@ export default function MusicPage() {
                                     onClick={() => handleSelectTrack(track)}
                                     className="p-2.5 px-3 flex items-center gap-3 hover:bg-[#FEF08A] cursor-pointer transition-colors"
                                   >
-                                    {/* Album Art */}
                                     <img
                                       src={track.artworkUrl}
                                       alt={track.trackName}
