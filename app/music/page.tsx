@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NavBar } from "@/components/layout/NavBar";
 import { createClient } from "@/lib/supabase/client";
@@ -20,11 +20,22 @@ import {
   Search,
   Check,
   Loader2,
+  RotateCcw,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_v3_from";
+const STORAGE_SONGS_KEY = "jane_josh_songs_v4_search";
 
-// Default Song Letter Cards with Verified High-Res Album Art
+// Search Result Item Type
+interface SearchTrackResult {
+  trackId: number;
+  trackName: string;
+  artistName: string;
+  artworkUrl: string;
+  previewUrl?: string;
+  spotifyUrl: string;
+}
+
+// Default Starter Songs
 const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] = [
   {
     id: "song_1",
@@ -69,46 +80,6 @@ const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] =
     added_by: "jane_id",
     sender_name: "jane",
     created_at: "2026-01-04T00:00:00Z",
-  },
-];
-
-// Popular Song Presets with Verified High-Res Covers
-const SONG_PRESETS = [
-  {
-    title: "Apocalypse",
-    artist: "Cigarettes After Sex",
-    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/3AVrVz5rKTrbeAcgpEt6uk",
-  },
-  {
-    title: "seasons",
-    artist: "wave to earth",
-    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/fa/c5/61/fac561dc-8db4-b2e9-d3db-6e246da72bfa/5054197890017.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/1P0sF0b686e0lU5tY7o45S",
-  },
-  {
-    title: "double take",
-    artist: "dhruv",
-    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/dc/72/7e/dc727e4b-a63e-324c-be9f-86f78f8cb080/196589088628.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/2qX5YezrzNTDEQ9Mu4Aq4M",
-  },
-  {
-    title: "Lover",
-    artist: "Taylor Swift",
-    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/74/d3/18/74d31835-cc01-9a7c-54be-930f7c22df65/19UMGIM70868.rgb.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/1dGr1c8CrMLDpV6mPb2Ovg",
-  },
-  {
-    title: "Until I Found You",
-    artist: "Stephen Sanchez",
-    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/21/f4/bf/21f4bf39-3994-0f18-6363-2287413697e8/22UMGIM78051.rgb.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/0T5iIrttAqIkxKaTw4zSPi",
-  },
-  {
-    title: "About You",
-    artist: "The 1975",
-    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/7e/4d/78/7e4d7883-e18e-eb7c-47b8-f0331005bc1d/22UMGIM92150.rgb.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/1fDFclhg60MuWGDvdwxvd9",
   },
 ];
 
@@ -227,15 +198,19 @@ export default function MusicPage() {
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
 
+  // Search Combobox State (As seen in screenshot)
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchTrackResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [selectedTrack, setSelectedTrack] = useState<SearchTrackResult | null>(null);
+
   // Form State
-  const [formTitle, setFormTitle] = useState("");
-  const [formArtist, setFormArtist] = useState("");
-  const [formUrl, setFormUrl] = useState("");
-  const [formCover, setFormCover] = useState("");
   const [formReason, setFormReason] = useState("");
   const [formSender, setFormSender] = useState<"jane" | "josh">("josh");
   const [adding, setAdding] = useState(false);
-  const [isFetchingArt, setIsFetchingArt] = useState(false);
+
+  const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // Load from Storage + Supabase
   const loadSongs = async () => {
@@ -289,44 +264,84 @@ export default function MusicPage() {
     if (isJosh) setFormSender("josh");
   }, [isJosh, isJane]);
 
-  // Automatic Album Art Fetcher using Apple/Spotify Search API
-  const fetchAlbumArt = async (title: string, artist: string) => {
-    if (!title.trim()) return;
-    setIsFetchingArt(true);
-    try {
-      const query = `${title} ${artist}`.trim();
-      const res = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=1`
-      );
-      const data = await res.json();
-      if (data.results && data.results.length > 0) {
-        const rawArt: string = data.results[0].artworkUrl100;
-        const highResArt = rawArt.replace("100x100bb.jpg", "600x600bb.jpg");
-        setFormCover(highResArt);
-        if (!formArtist && data.results[0].artistName) {
-          setFormArtist(data.results[0].artistName);
-        }
-        showToast("Official album cover found! 🎨", { emoji: "✨" });
-      }
-    } catch (err) {
-      console.error("Failed to fetch artwork:", err);
-    } finally {
-      setIsFetchingArt(false);
+  // Handle Search Input & Debounce (Like user's screenshot)
+  useEffect(() => {
+    if (!searchQuery.trim() || selectedTrack) {
+      setSearchResults([]);
+      setIsSearching(false);
+      return;
     }
+
+    // Check if user pasted Spotify URL directly
+    if (searchQuery.includes("spotify.com/track/")) {
+      const cleanQuery = searchQuery.split("?")[0].replace("https://open.spotify.com/track/", "");
+      // Search general track name
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      setShowDropdown(true);
+      try {
+        const res = await fetch(
+          `https://itunes.apple.com/search?term=${encodeURIComponent(
+            searchQuery
+          )}&media=music&entity=song&limit=8`
+        );
+        const data = await res.json();
+        if (data.results && data.results.length > 0) {
+          const mapped: SearchTrackResult[] = data.results.map((item: any) => ({
+            trackId: item.trackId,
+            trackName: item.trackName,
+            artistName: item.artistName,
+            artworkUrl: item.artworkUrl100?.replace("100x100bb.jpg", "600x600bb.jpg") || item.artworkUrl60,
+            previewUrl: item.previewUrl,
+            spotifyUrl: `https://open.spotify.com/search/${encodeURIComponent(item.trackName + " " + item.artistName)}`,
+          }));
+          setSearchResults(mapped);
+        } else {
+          setSearchResults([]);
+        }
+      } catch (err) {
+        console.error("Search error:", err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, selectedTrack]);
+
+  // Click outside listener to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Select track from dropdown
+  const handleSelectTrack = (track: SearchTrackResult) => {
+    setSelectedTrack(track);
+    setSearchQuery(track.trackName + " - " + track.artistName);
+    setShowDropdown(false);
+    showToast(`Selected: ${track.trackName} 🎵`, { emoji: "✨" });
   };
 
-  // Quick Preset Click
-  const handleSelectPreset = (preset: typeof SONG_PRESETS[0]) => {
-    setFormTitle(preset.title);
-    setFormArtist(preset.artist);
-    setFormCover(preset.cover);
-    setFormUrl(preset.url);
+  // Reset selected track
+  const handleResetSelectedTrack = () => {
+    setSelectedTrack(null);
+    setSearchQuery("");
+    setSearchResults([]);
+    setShowDropdown(false);
   };
 
   // Add Song Letter
   const addSong = async () => {
-    if (!formTitle.trim() || !formArtist.trim() || !formReason.trim()) {
-      showToast("Please fill in song title, artist, and your letter message!", {
+    if (!selectedTrack || !formReason.trim()) {
+      showToast("Please search & select a song, and write your mini letter!", {
         emoji: "✍️",
         type: "error",
       });
@@ -336,16 +351,13 @@ export default function MusicPage() {
     setAdding(true);
 
     const targetUser = formSender === "josh" ? "jane" : "josh";
-    const finalCover =
-      formCover.trim() ||
-      "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg";
 
     const newSong = {
       id: "song_" + Date.now(),
-      title: formTitle.trim(),
-      artist: formArtist.trim(),
-      url: formUrl.trim() || `https://open.spotify.com/search/${encodeURIComponent(formTitle + " " + formArtist)}`,
-      album_cover: finalCover,
+      title: selectedTrack.trackName,
+      artist: selectedTrack.artistName,
+      url: selectedTrack.spotifyUrl,
+      album_cover: selectedTrack.artworkUrl,
       sender_name: formSender,
       recipient: targetUser,
       reason: formReason.trim(),
@@ -377,10 +389,7 @@ export default function MusicPage() {
       type: "love",
     });
 
-    setFormTitle("");
-    setFormArtist("");
-    setFormUrl("");
-    setFormCover("");
+    handleResetSelectedTrack();
     setFormReason("");
     setShowAdd(false);
     setAdding(false);
@@ -476,7 +485,7 @@ export default function MusicPage() {
                     <h2 className="font-display font-black text-xl text-[#2C2824] flex items-center gap-2">
                       <span>💌</span>
                       <span>
-                        Dedicate a Spotify Song Letter from {formSender === "jane" ? "Jane 🌸" : "Josh 💻"}
+                        Dedicate a Song Letter from {formSender === "jane" ? "Jane 🌸" : "Josh 💻"}
                       </span>
                     </h2>
                     <button
@@ -485,25 +494,6 @@ export default function MusicPage() {
                     >
                       <X size={18} />
                     </button>
-                  </div>
-
-                  {/* Quick Preset Selector */}
-                  <div className="space-y-1.5">
-                    <span className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824]">
-                      Quick Song Presets (Click to autofill):
-                    </span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {SONG_PRESETS.map((p) => (
-                        <button
-                          key={p.title}
-                          type="button"
-                          onClick={() => handleSelectPreset(p)}
-                          className="px-2.5 py-1 rounded-lg bg-[#FFFDF9] border border-[#2C2824] text-xs font-display font-bold text-[#2C2824] hover:bg-[#FEF08A] transition-colors"
-                        >
-                          🎵 {p.title} - {p.artist}
-                        </button>
-                      ))}
-                    </div>
                   </div>
 
                   <div className="space-y-4">
@@ -538,6 +528,104 @@ export default function MusicPage() {
                       </div>
                     </div>
 
+                    {/* ─── LIVE SONG SEARCH COMBOBOX (Matching Screenshot) ─── */}
+                    <div className="space-y-1.5 relative" ref={searchContainerRef}>
+                      <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824] block">
+                        Song
+                      </label>
+
+                      {!selectedTrack ? (
+                        <div className="relative">
+                          <input
+                            value={searchQuery}
+                            onChange={(e) => {
+                              setSearchQuery(e.target.value);
+                              setShowDropdown(true);
+                            }}
+                            onFocus={() => {
+                              if (searchResults.length > 0) setShowDropdown(true);
+                            }}
+                            placeholder="Search and select your song (e.g. Lucky, Apocalypse, Lover)"
+                            className="w-full border-2 border-[#2C2824] rounded-xl px-4 py-2.5 pl-10 text-sm font-body bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824]"
+                          />
+                          <Search
+                            size={16}
+                            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7A7269]"
+                          />
+                          {isSearching && (
+                            <Loader2
+                              size={16}
+                              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#7A7269] animate-spin"
+                            />
+                          )}
+
+                          {/* Dropdown Results List (Like Screenshot) */}
+                          <AnimatePresence>
+                            {showDropdown && searchResults.length > 0 && (
+                              <motion.div
+                                initial={{ opacity: 0, y: -5 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -5 }}
+                                className="absolute left-0 right-0 top-full mt-1.5 bg-[#FFFDF9] border-2 border-[#2C2824] rounded-xl shadow-[4px_4px_0px_#2C2824] max-h-64 overflow-y-auto z-50 divide-y divide-[#2C2824]/10"
+                              >
+                                {searchResults.map((track) => (
+                                  <div
+                                    key={track.trackId}
+                                    onClick={() => handleSelectTrack(track)}
+                                    className="p-2.5 px-3 flex items-center gap-3 hover:bg-[#FEF08A] cursor-pointer transition-colors"
+                                  >
+                                    {/* Album Art */}
+                                    <img
+                                      src={track.artworkUrl}
+                                      alt={track.trackName}
+                                      className="w-10 h-10 rounded-md object-cover border border-[#2C2824]/20 flex-shrink-0 bg-[#2C2824]"
+                                    />
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-display font-bold text-sm text-[#2C2824] truncate">
+                                        {track.trackName}
+                                      </p>
+                                      <p className="font-body text-xs text-[#7A7269] truncate">
+                                        {track.artistName}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      ) : (
+                        /* Selected Track Banner */
+                        <div className="bg-[#BBF7D0] border-2 border-[#16A34A] rounded-xl p-3 flex items-center justify-between shadow-[2px_2px_0px_#16A34A]">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <img
+                              src={selectedTrack.artworkUrl}
+                              alt={selectedTrack.trackName}
+                              className="w-12 h-12 rounded-lg object-cover border border-[#16A34A] flex-shrink-0 shadow-sm"
+                            />
+                            <div className="min-w-0">
+                              <p className="font-display font-black text-sm text-[#14532D] truncate flex items-center gap-1.5">
+                                <span>{selectedTrack.trackName}</span>
+                                <Check size={15} className="text-[#16A34A] flex-shrink-0" />
+                              </p>
+                              <p className="font-body text-xs text-[#166534] truncate">
+                                {selectedTrack.artistName}
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={handleResetSelectedTrack}
+                            className="neu-btn neu-btn-white text-xs py-1.5 px-3 flex items-center gap-1 flex-shrink-0 shadow-none border-[#16A34A]"
+                          >
+                            <RotateCcw size={12} />
+                            <span>Change Song</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Handwritten Mini Letter */}
                     <div className="space-y-1.5">
                       <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824] block">
@@ -553,83 +641,6 @@ export default function MusicPage() {
                       />
                     </div>
 
-                    {/* Song Details Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="font-display font-bold text-xs text-[#2C2824]">
-                          Song Title *
-                        </label>
-                        <div className="flex gap-1.5">
-                          <input
-                            value={formTitle}
-                            onChange={(e) => setFormTitle(e.target.value)}
-                            onBlur={() => {
-                              if (formTitle && !formCover) fetchAlbumArt(formTitle, formArtist);
-                            }}
-                            placeholder="e.g. Apocalypse"
-                            required
-                            className="w-full border-2 border-[#2C2824] rounded-xl px-3 py-2 text-sm font-body bg-[#FFFDF9] focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => fetchAlbumArt(formTitle, formArtist)}
-                            className="p-2.5 rounded-xl border-2 border-[#2C2824] bg-[#FEF08A] hover:bg-[#FDE047] flex-shrink-0"
-                            title="Auto-search Spotify album cover"
-                          >
-                            {isFetchingArt ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1">
-                        <label className="font-display font-bold text-xs text-[#2C2824]">
-                          Artist Name *
-                        </label>
-                        <input
-                          value={formArtist}
-                          onChange={(e) => setFormArtist(e.target.value)}
-                          placeholder="e.g. Cigarettes After Sex"
-                          required
-                          className="w-full border-2 border-[#2C2824] rounded-xl px-3 py-2 text-sm font-body bg-[#FFFDF9] focus:outline-none"
-                        />
-                      </div>
-
-                      {/* Live Album Cover Artwork Preview */}
-                      <div className="space-y-1 sm:col-span-2">
-                        <label className="font-display font-bold text-xs text-[#2C2824] flex items-center justify-between">
-                          <span>Album Cover Art (Auto-detected from Spotify / Apple Music):</span>
-                          {formCover && <span className="text-emerald-700 text-[10px] font-bold">✓ Cover Attached</span>}
-                        </label>
-                        <div className="flex items-center gap-3">
-                          {formCover && (
-                            <img
-                              src={formCover}
-                              alt="Cover Preview"
-                              className="w-14 h-14 rounded-xl object-cover border-2 border-[#2C2824] shadow-sm flex-shrink-0 bg-[#2C2824]"
-                            />
-                          )}
-                          <input
-                            value={formCover}
-                            onChange={(e) => setFormCover(e.target.value)}
-                            placeholder="Cover image URL (Auto-filled on search)"
-                            className="w-full border-2 border-[#2C2824] rounded-xl px-3 py-2 text-xs font-body bg-[#FFFDF9] focus:outline-none"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-1 sm:col-span-2">
-                        <label className="font-display font-bold text-xs text-[#2C2824]">
-                          Spotify Track Link (Optional)
-                        </label>
-                        <input
-                          value={formUrl}
-                          onChange={(e) => setFormUrl(e.target.value)}
-                          placeholder="e.g. https://open.spotify.com/track/3AVrVz5rKTrbeAcgpEt6uk"
-                          className="w-full border-2 border-[#2C2824] rounded-xl px-3 py-2 text-sm font-body bg-[#FFFDF9] focus:outline-none"
-                        />
-                      </div>
-                    </div>
-
                     <div className="pt-2 flex justify-end gap-2">
                       <button
                         type="button"
@@ -641,7 +652,7 @@ export default function MusicPage() {
                       <button
                         type="button"
                         onClick={addSong}
-                        disabled={!formTitle.trim() || !formArtist.trim() || !formReason.trim() || adding}
+                        disabled={!selectedTrack || !formReason.trim() || adding}
                         className="neu-btn neu-btn-pink text-xs py-2.5 px-6 shadow-[3px_3px_0px_#2C2824] disabled:opacity-50 flex items-center gap-1.5"
                       >
                         <Heart size={14} className="fill-current" />
