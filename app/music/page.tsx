@@ -22,8 +22,8 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_v6_sync";
-const STORAGE_DELETED_KEY = "jane_josh_deleted_song_keys_v1";
+const STORAGE_SONGS_KEY = "jane_josh_songs_v7_clean";
+const STORAGE_DELETED_KEY = "jane_josh_deleted_song_keys_v2";
 
 // Search Result Item Type
 interface SearchTrackResult {
@@ -99,10 +99,11 @@ const getDeletedKeys = (): string[] => {
 };
 
 const saveDeletedKey = (key: string) => {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !key) return;
   const current = getDeletedKeys();
-  if (!current.includes(key)) {
-    current.push(key);
+  const lower = key.trim().toLowerCase();
+  if (!current.includes(lower)) {
+    current.push(lower);
     localStorage.setItem(STORAGE_DELETED_KEY, JSON.stringify(current));
   }
 };
@@ -218,7 +219,7 @@ export default function MusicPage() {
   const { showToast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
-  const [songs, setSongs] = useState<(Song & { album_cover?: string | null; sender_name?: string | null })[]>(DEFAULT_SONGS);
+  const [songs, setSongs] = useState<(Song & { album_cover?: string | null; sender_name?: string | null })[]>([]);
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -236,22 +237,25 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initial Load: Read from LocalStorage immediately, filtering out deleted tombstones
+  // 1. Initial Load: Read strictly from LocalStorage or initialize once
   useEffect(() => {
     const deletedKeys = getDeletedKeys();
-    let initialList = DEFAULT_SONGS.filter(
-      (s) => !deletedKeys.includes(s.id) && !deletedKeys.includes(s.title.toLowerCase())
-    );
 
     if (typeof window !== "undefined") {
       try {
         const stored = localStorage.getItem(STORAGE_SONGS_KEY);
-        if (stored) {
+        if (stored !== null) {
+          // User already has an initialized state (could be empty [] if deleted all, or have custom songs)
           const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            initialList = parsed.filter(
-              (s) => !deletedKeys.includes(s.id) && !deletedKeys.includes(s.title?.toLowerCase())
+          if (Array.isArray(parsed)) {
+            const filtered = parsed.filter(
+              (s) =>
+                !deletedKeys.includes(s.id?.toLowerCase()) &&
+                !deletedKeys.includes(s.title?.trim().toLowerCase())
             );
+            setSongs(filtered);
+            loadAndMergeSupabase(filtered);
+            return;
           }
         }
       } catch (e) {
@@ -259,11 +263,19 @@ export default function MusicPage() {
       }
     }
 
+    // First time visitor only
+    const initialList = DEFAULT_SONGS.filter(
+      (s) =>
+        !deletedKeys.includes(s.id?.toLowerCase()) &&
+        !deletedKeys.includes(s.title?.trim().toLowerCase())
+    );
     setSongs(initialList);
     loadAndMergeSupabase(initialList);
   }, []);
 
-  const loadAndMergeSupabase = async (baseLocalList: typeof DEFAULT_SONGS) => {
+  const loadAndMergeSupabase = async (
+    baseLocalList: (Song & { album_cover?: string | null; sender_name?: string | null })[]
+  ) => {
     const deletedKeys = getDeletedKeys();
     try {
       const { data: dbSongs, error } = await supabase
@@ -271,23 +283,35 @@ export default function MusicPage() {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (!error && dbSongs && dbSongs.length > 0) {
+      if (!error && dbSongs) {
         const songMap = new Map<string, any>();
 
         // 1. Add base local songs (filtering out any deleted keys)
         baseLocalList.forEach((s) => {
-          if (!deletedKeys.includes(s.id) && !deletedKeys.includes(s.title?.toLowerCase())) {
-            songMap.set(s.title.toLowerCase(), s);
+          const key = s.title?.trim().toLowerCase();
+          if (
+            key &&
+            !deletedKeys.includes(s.id?.toLowerCase()) &&
+            !deletedKeys.includes(key)
+          ) {
+            songMap.set(key, s);
           }
         });
 
-        // 2. Add DB songs (filtering out deleted keys)
+        // 2. Add DB songs ONLY if NOT deleted and NOT already in local
         dbSongs.forEach((dbS) => {
-          if (!deletedKeys.includes(dbS.id) && !deletedKeys.includes(dbS.title?.toLowerCase())) {
-            songMap.set(dbS.title.toLowerCase(), {
-              ...dbS,
-              sender_name: dbS.recipient === "josh" ? "jane" : "josh",
-            });
+          const key = dbS.title?.trim().toLowerCase();
+          if (
+            key &&
+            !deletedKeys.includes(dbS.id?.toLowerCase()) &&
+            !deletedKeys.includes(key)
+          ) {
+            if (!songMap.has(key)) {
+              songMap.set(key, {
+                ...dbS,
+                sender_name: dbS.recipient === "josh" ? "jane" : "josh",
+              });
+            }
           }
         });
 
@@ -458,26 +482,36 @@ export default function MusicPage() {
   };
 
   // Permanent Delete Song (Tombstone + Supabase deletion by ID & Title)
-  const handleDeleteSong = async (songToDelete: Song & { album_cover?: string | null; sender_name?: string | null }) => {
-    // 1. Record in tombstone list so it NEVER gets revived on reload
-    saveDeletedKey(songToDelete.id);
-    saveDeletedKey(songToDelete.title.toLowerCase());
+  const handleDeleteSong = async (
+    songToDelete: Song & { album_cover?: string | null; sender_name?: string | null }
+  ) => {
+    const cleanTitle = songToDelete.title?.trim().toLowerCase();
+    
+    // 1. Record in tombstone list so it NEVER gets revived
+    if (songToDelete.id) saveDeletedKey(songToDelete.id);
+    if (cleanTitle) saveDeletedKey(cleanTitle);
 
-    // 2. Remove immediately from local state
+    // 2. Remove immediately from local state & LocalStorage
     const updated = songs.filter(
-      (s) => s.id !== songToDelete.id && s.title.toLowerCase() !== songToDelete.title.toLowerCase()
+      (s) =>
+        s.id !== songToDelete.id &&
+        s.title?.trim().toLowerCase() !== cleanTitle
     );
     persistSongs(updated);
 
-    // 3. Delete from Supabase both by ID and by Title (case-insensitive)
+    // 3. Delete from Supabase
     try {
-      await supabase.from("songs").delete().eq("id", songToDelete.id);
-      await supabase.from("songs").delete().ilike("title", songToDelete.title);
+      if (songToDelete.id) {
+        await supabase.from("songs").delete().eq("id", songToDelete.id);
+      }
+      if (songToDelete.title) {
+        await supabase.from("songs").delete().ilike("title", songToDelete.title);
+      }
     } catch (err) {
       console.error("Supabase delete error:", err);
     }
 
-    showToast("Song letter permanently removed 🗑️", { emoji: "🗑️" });
+    showToast("Song letter removed 🗑️", { emoji: "🗑️" });
   };
 
   // Filter songs
@@ -748,7 +782,7 @@ export default function MusicPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {filteredSongs.map((song) => (
                 <MusicLetterCard
-                  key={song.id}
+                  key={song.id || song.title}
                   song={song}
                   isAdmin={isAdmin}
                   onDelete={handleDeleteSong}
