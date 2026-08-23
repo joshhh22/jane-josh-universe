@@ -22,7 +22,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_v8_master";
+const STORAGE_SONGS_KEY = "jane_josh_songs_real_user_only";
 
 // Search Result Item Type
 interface SearchTrackResult {
@@ -33,58 +33,6 @@ interface SearchTrackResult {
   previewUrl?: string;
   spotifyUrl: string;
 }
-
-// Initial Starter Songs (Only used on very first visit if empty)
-const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] = [
-  {
-    id: "song_1",
-    title: "Apocalypse",
-    artist: "Cigarettes After Sex",
-    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/3AVrVz5rKTrbeAcgpEt6uk",
-    reason: "i still use the playlist u made pas aku sedih... it still helps somehow",
-    added_by: "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe",
-    sender_name: "josh",
-    recipient: "jane",
-    created_at: "2026-01-01T00:00:00Z",
-  },
-  {
-    id: "song_2",
-    title: "seasons",
-    artist: "wave to earth",
-    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/fa/c5/61/fac561dc-8db4-b2e9-d3db-6e246da72bfa/5054197890017.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/1P0sF0b686e0lU5tY7o45S",
-    reason: "lagu ini selalu ngingetin aku waktu kita naik mobil malem-malem sambil liatin lampu kota bareng kamu ♡",
-    added_by: "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832",
-    sender_name: "jane",
-    recipient: "josh",
-    created_at: "2026-01-02T00:00:00Z",
-  },
-  {
-    id: "song_3",
-    title: "double take",
-    artist: "dhruv",
-    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/dc/72/7e/dc727e4b-a63e-324c-be9f-86f78f8cb080/196589088628.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/2qX5YezrzNTDEQ9Mu4Aq4M",
-    reason: "do you remember the day i first realized i was completely in love with you? this song captures that exact feeling.",
-    added_by: "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe",
-    sender_name: "josh",
-    recipient: "jane",
-    created_at: "2026-01-03T00:00:00Z",
-  },
-  {
-    id: "song_4",
-    title: "Lover",
-    artist: "Taylor Swift",
-    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/74/d3/18/74d31835-cc01-9a7c-54be-930f7c22df65/19UMGIM70868.rgb.jpg/600x600bb.jpg",
-    url: "https://open.spotify.com/track/1dGr1c8CrMLDpV6mPb2Ovg",
-    reason: "can i go where you go? can we always be this close forever and ever and ever? 💗",
-    added_by: "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832",
-    sender_name: "jane",
-    recipient: "josh",
-    created_at: "2026-01-04T00:00:00Z",
-  },
-];
 
 // Spotify Icon Component
 function SpotifyIcon({ className = "w-5 h-5" }: { className?: string }) {
@@ -109,7 +57,7 @@ function MusicLetterCard({
   const senderLabel = isFromJane ? "jane" : "josh";
   const defaultCover =
     song.album_cover ||
-    "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg";
+    "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&auto=format&fit=crop&q=80";
 
   return (
     <motion.div
@@ -197,6 +145,7 @@ export default function MusicPage() {
   const { showToast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
+  // Pure clean state: NO DUMMY SONGS
   const [songs, setSongs] = useState<(Song & { album_cover?: string | null; sender_name?: string | null })[]>([]);
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
@@ -215,31 +164,79 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initial Load: Clean up any old toxic tombstone keys from earlier versions
+  // 1. Initial Load: Load strictly user added songs from LocalStorage & Supabase
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
+        // Clean all old dummy keys
+        localStorage.removeItem("jane_josh_songs_v2");
+        localStorage.removeItem("jane_josh_songs_v3_from");
+        localStorage.removeItem("jane_josh_songs_v4_search");
+        localStorage.removeItem("jane_josh_songs_v5_permanent");
+        localStorage.removeItem("jane_josh_songs_v6_sync");
+        localStorage.removeItem("jane_josh_songs_v7_clean");
+        localStorage.removeItem("jane_josh_songs_v8_master");
         localStorage.removeItem("jane_josh_deleted_song_keys_v1");
         localStorage.removeItem("jane_josh_deleted_song_keys_v2");
-        localStorage.removeItem("jane_josh_deleted_song_keys_v3");
 
         const stored = localStorage.getItem(STORAGE_SONGS_KEY);
-        if (stored !== null) {
+        if (stored) {
           const parsed = JSON.parse(stored);
           if (Array.isArray(parsed)) {
             setSongs(parsed);
-            return;
           }
-        } else {
-          // First time opening: initialize with default songs
-          setSongs(DEFAULT_SONGS);
-          localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(DEFAULT_SONGS));
         }
       } catch (e) {
         console.error("LocalStorage load error:", e);
       }
     }
+
+    // Fetch from Supabase
+    fetchSupabaseSongs();
   }, []);
+
+  const fetchSupabaseSongs = async () => {
+    try {
+      const { data: dbSongs } = await supabase
+        .from("songs")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (dbSongs && dbSongs.length > 0) {
+        // Filter out any default dummy rows from old seed
+        const realDbSongs = dbSongs.filter(
+          (s) =>
+            s.title !== "Apocalypse" &&
+            s.title !== "seasons" &&
+            s.title !== "double take" &&
+            s.title !== "Lover"
+        );
+
+        if (realDbSongs.length > 0) {
+          setSongs((current) => {
+            const map = new Map<string, any>();
+            current.forEach((s) => map.set(s.title.toLowerCase(), s));
+            realDbSongs.forEach((dbS) => {
+              const key = dbS.title.toLowerCase();
+              if (!map.has(key)) {
+                map.set(key, {
+                  ...dbS,
+                  sender_name: dbS.recipient === "josh" ? "jane" : "josh",
+                });
+              }
+            });
+            const merged = Array.from(map.values());
+            if (typeof window !== "undefined") {
+              localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(merged));
+            }
+            return merged;
+          });
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const persistSongs = (updated: typeof songs) => {
     setSongs(updated);
@@ -353,7 +350,7 @@ export default function MusicPage() {
       created_at: new Date().toISOString(),
     };
 
-    // 1. Immediately persist to LocalStorage and State (Bulletproof)
+    // 1. Immediately persist to LocalStorage and State
     const updated = [newSong, ...songs];
     persistSongs(updated);
 
