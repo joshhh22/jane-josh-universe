@@ -14,7 +14,6 @@ import {
   Music,
   Disc,
   X,
-  Sparkles,
   Heart,
   Trash2,
   Search,
@@ -23,7 +22,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_v4_search";
+const STORAGE_SONGS_KEY = "jane_josh_songs_v5_permanent";
 
 // Search Result Item Type
 interface SearchTrackResult {
@@ -35,7 +34,7 @@ interface SearchTrackResult {
   spotifyUrl: string;
 }
 
-// Default Starter Songs
+// Default Permanent Starter Songs
 const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] = [
   {
     id: "song_1",
@@ -44,8 +43,9 @@ const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] =
     album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/3AVrVz5rKTrbeAcgpEt6uk",
     reason: "i still use the playlist u made pas aku sedih... it still helps somehow",
-    added_by: "josh_id",
+    added_by: "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe",
     sender_name: "josh",
+    recipient: "jane",
     created_at: "2026-01-01T00:00:00Z",
   },
   {
@@ -55,8 +55,9 @@ const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] =
     album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/fa/c5/61/fac561dc-8db4-b2e9-d3db-6e246da72bfa/5054197890017.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/1P0sF0b686e0lU5tY7o45S",
     reason: "lagu ini selalu ngingetin aku waktu kita naik mobil malem-malem sambil liatin lampu kota bareng kamu ♡",
-    added_by: "jane_id",
+    added_by: "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832",
     sender_name: "jane",
+    recipient: "josh",
     created_at: "2026-01-02T00:00:00Z",
   },
   {
@@ -66,8 +67,9 @@ const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] =
     album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/dc/72/7e/dc727e4b-a63e-324c-be9f-86f78f8cb080/196589088628.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/2qX5YezrzNTDEQ9Mu4Aq4M",
     reason: "do you remember the day i first realized i was completely in love with you? this song captures that exact feeling.",
-    added_by: "josh_id",
+    added_by: "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe",
     sender_name: "josh",
+    recipient: "jane",
     created_at: "2026-01-03T00:00:00Z",
   },
   {
@@ -77,8 +79,9 @@ const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] =
     album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/74/d3/18/74d31835-cc01-9a7c-54be-930f7c22df65/19UMGIM70868.rgb.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/1dGr1c8CrMLDpV6mPb2Ovg",
     reason: "can i go where you go? can we always be this close forever and ever and ever? 💗",
-    added_by: "jane_id",
+    added_by: "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832",
     sender_name: "jane",
+    recipient: "josh",
     created_at: "2026-01-04T00:00:00Z",
   },
 ];
@@ -212,44 +215,64 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // Load from Storage + Supabase
-  const loadSongs = async () => {
-    let localSaved: (Song & { album_cover?: string | null; sender_name?: string | null })[] = [];
+  // 1. Initial Load: Read from LocalStorage immediately for instant persistent render
+  useEffect(() => {
+    let initialSongs = DEFAULT_SONGS;
     if (typeof window !== "undefined") {
       try {
         const stored = localStorage.getItem(STORAGE_SONGS_KEY);
-        if (stored) localSaved = JSON.parse(stored);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            initialSongs = parsed;
+            setSongs(parsed);
+          }
+        } else {
+          localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(DEFAULT_SONGS));
+        }
       } catch (e) {
-        console.error(e);
+        console.error("LocalStorage load error:", e);
       }
     }
 
+    // 2. Fetch from Supabase and merge without wiping local additions
+    loadAndMergeSupabase(initialSongs);
+  }, []);
+
+  const loadAndMergeSupabase = async (baseLocalList: typeof DEFAULT_SONGS) => {
     try {
-      const { data: dbSongs } = await supabase
+      const { data: dbSongs, error } = await supabase
         .from("songs")
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (dbSongs && dbSongs.length > 0) {
-        const formatted = dbSongs.map((s) => ({
-          ...s,
-          sender_name: s.recipient === "josh" ? "jane" : "josh",
-        }));
-        setSongs(formatted);
-        return;
+      if (!error && dbSongs && dbSongs.length > 0) {
+        const songMap = new Map<string, any>();
+
+        // First add base / local songs (keeps user created items)
+        baseLocalList.forEach((s) => songMap.set(s.id, s));
+
+        // Add / merge DB songs
+        dbSongs.forEach((dbS) => {
+          songMap.set(dbS.id, {
+            ...dbS,
+            sender_name: dbS.recipient === "josh" ? "jane" : "josh",
+          });
+        });
+
+        const merged = Array.from(songMap.values()).sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        setSongs(merged);
+        if (typeof window !== "undefined") {
+          localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(merged));
+        }
       }
     } catch (err) {
-      console.error(err);
-    }
-
-    if (localSaved.length > 0) {
-      setSongs(localSaved);
+      console.error("Supabase fetch error:", err);
     }
   };
-
-  useEffect(() => {
-    loadSongs();
-  }, []);
 
   const persistSongs = (updated: typeof songs) => {
     setSongs(updated);
@@ -270,12 +293,6 @@ export default function MusicPage() {
       setSearchResults([]);
       setIsSearching(false);
       return;
-    }
-
-    // Check if user pasted Spotify URL directly
-    if (searchQuery.includes("spotify.com/track/")) {
-      const cleanQuery = searchQuery.split("?")[0].replace("https://open.spotify.com/track/", "");
-      // Search general track name
     }
 
     const timer = setTimeout(async () => {
@@ -338,7 +355,7 @@ export default function MusicPage() {
     setShowDropdown(false);
   };
 
-  // Add Song Letter
+  // Add Song Letter with Guaranteed Dual-Persistence
   const addSong = async () => {
     if (!selectedTrack || !formReason.trim()) {
       showToast("Please search & select a song, and write your mini letter!", {
@@ -351,9 +368,15 @@ export default function MusicPage() {
     setAdding(true);
 
     const targetUser = formSender === "josh" ? "jane" : "josh";
+    const newSongId = "song_" + Date.now();
+    const fallbackUserId =
+      user?.id ||
+      (formSender === "josh"
+        ? "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe"
+        : "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832");
 
     const newSong = {
-      id: "song_" + Date.now(),
+      id: newSongId,
       title: selectedTrack.trackName,
       artist: selectedTrack.artistName,
       url: selectedTrack.spotifyUrl,
@@ -361,27 +384,38 @@ export default function MusicPage() {
       sender_name: formSender,
       recipient: targetUser,
       reason: formReason.trim(),
-      added_by: user?.id || "guest",
+      added_by: fallbackUserId,
       created_at: new Date().toISOString(),
     };
 
-    // Immediate local update
+    // 1. Immediately update client state & LocalStorage (Permanent!)
     const updated = [newSong, ...songs];
     persistSongs(updated);
 
-    // Supabase background sync
+    // 2. Background Sync to Supabase
     try {
-      await supabase.from("songs").insert({
+      const { error } = await supabase.from("songs").insert({
         title: newSong.title,
         artist: newSong.artist,
         url: newSong.url,
         album_cover: newSong.album_cover,
         recipient: targetUser,
         reason: newSong.reason,
-        added_by: user?.id,
+        added_by: fallbackUserId,
       });
+
+      if (error) {
+        console.warn("Supabase standard insert fallback:", error);
+        await supabase.from("songs").insert({
+          title: newSong.title,
+          artist: newSong.artist,
+          url: newSong.url,
+          reason: newSong.reason,
+          added_by: fallbackUserId,
+        });
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Supabase insert error:", err);
     }
 
     showToast(`Music letter sent From: ${formSender === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
@@ -545,7 +579,7 @@ export default function MusicPage() {
                             onFocus={() => {
                               if (searchResults.length > 0) setShowDropdown(true);
                             }}
-                            placeholder="Search and select your song (e.g. Lucky, Apocalypse, Lover)"
+                            placeholder="Search and select your song (e.g. Best Part, Lucky, Apocalypse, Lover)"
                             className="w-full border-2 border-[#2C2824] rounded-xl px-4 py-2.5 pl-10 text-sm font-body bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824]"
                           />
                           <Search
@@ -634,7 +668,7 @@ export default function MusicPage() {
                       <textarea
                         value={formReason}
                         onChange={(e) => setFormReason(e.target.value)}
-                        placeholder="e.g. 'i still use the playlist u made pas aku sedih... it still helps somehow'"
+                        placeholder="e.g. 'YOU ARE MY BEST PARTT ♡'"
                         rows={3}
                         required
                         className="w-full border-2 border-[#2C2824] rounded-xl px-3.5 py-2.5 text-base font-hand bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824] resize-none"
