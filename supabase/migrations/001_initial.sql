@@ -55,6 +55,8 @@ CREATE TABLE public.songs (
   title TEXT NOT NULL,
   artist TEXT NOT NULL,
   url TEXT,
+  album_cover TEXT,
+  recipient TEXT DEFAULT 'jane',
   added_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   reason TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

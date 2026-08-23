@@ -43,6 +43,8 @@ export interface Database {
           title: string;
           artist: string;
           url: string | null;
+          album_cover: string | null;
+          recipient: string | null;
           added_by: string;
           reason: string | null;
           created_at: string;
