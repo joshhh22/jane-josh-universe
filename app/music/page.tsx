@@ -10,6 +10,14 @@ import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import type { Song } from "@/lib/supabase/types";
 import {
+  getCleanLocalSongs,
+  saveCleanLocalSongs,
+  getBlacklist,
+  addToBlacklist,
+  removeFromBlacklist,
+  type CustomSongItem,
+} from "@/lib/musicStorage";
+import {
   Plus,
   Music,
   Disc,
@@ -22,9 +30,6 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_v9_perfect";
-const STORAGE_BLACKLIST_KEY = "jane_josh_deleted_blacklist_v4";
-
 // Search Result Item Type
 interface SearchTrackResult {
   trackId: number;
@@ -34,34 +39,6 @@ interface SearchTrackResult {
   previewUrl?: string;
   spotifyUrl: string;
 }
-
-// Helpers for Blacklist management
-const getBlacklist = (): string[] => {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_BLACKLIST_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-};
-
-const addToBlacklist = (keys: string[]) => {
-  if (typeof window === "undefined") return;
-  const current = getBlacklist();
-  keys.forEach((k) => {
-    const clean = k?.trim().toLowerCase();
-    if (clean && !current.includes(clean)) current.push(clean);
-  });
-  localStorage.setItem(STORAGE_BLACKLIST_KEY, JSON.stringify(current));
-};
-
-const removeFromBlacklist = (key: string) => {
-  if (typeof window === "undefined" || !key) return;
-  const clean = key.trim().toLowerCase();
-  const current = getBlacklist().filter((k) => k !== clean);
-  localStorage.setItem(STORAGE_BLACKLIST_KEY, JSON.stringify(current));
-};
 
 // Spotify Icon Component
 function SpotifyIcon({ className = "w-5 h-5" }: { className?: string }) {
@@ -78,9 +55,9 @@ function MusicLetterCard({
   isAdmin,
   onDelete,
 }: {
-  song: Song & { album_cover?: string | null; sender_name?: string | null };
+  song: CustomSongItem;
   isAdmin: boolean;
-  onDelete: (song: Song & { album_cover?: string | null; sender_name?: string | null }) => void;
+  onDelete: (song: CustomSongItem) => void;
 }) {
   const isFromJane = song.sender_name === "jane";
   const senderLabel = isFromJane ? "jane" : "josh";
@@ -174,7 +151,7 @@ export default function MusicPage() {
   const { showToast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
-  const [songs, setSongs] = useState<(Song & { album_cover?: string | null; sender_name?: string | null })[]>([]);
+  const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -192,30 +169,12 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initial Load: Read strictly from LocalStorage and filter out blacklisted deleted titles
+  // 1. Initial Load: Read strictly from shared getCleanLocalSongs
   useEffect(() => {
-    const blacklist = getBlacklist();
-
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem(STORAGE_SONGS_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) {
-            const filtered = parsed.filter(
-              (s) =>
-                !blacklist.includes(s.id?.toLowerCase()) &&
-                !blacklist.includes(s.title?.trim().toLowerCase())
-            );
-            setSongs(filtered);
-          }
-        }
-      } catch (e) {
-        console.error("LocalStorage load error:", e);
-      }
+    const cleanList = getCleanLocalSongs();
+    if (cleanList.length > 0) {
+      setSongs(cleanList);
     }
-
-    // Fetch from Supabase
     fetchSupabaseSongs();
   }, []);
 
@@ -228,24 +187,24 @@ export default function MusicPage() {
         .order("created_at", { ascending: false });
 
       if (dbSongs && dbSongs.length > 0) {
-        // Filter out dummy songs AND any blacklisted deleted songs
         const realDbSongs = dbSongs.filter((s) => {
-          const titleLower = s.title?.trim().toLowerCase();
+          const cleanTitle = s.title?.trim().toLowerCase();
           const isDummy =
-            titleLower === "apocalypse" ||
-            titleLower === "seasons" ||
-            titleLower === "double take" ||
-            titleLower === "lover";
-          const isBlacklisted = blacklist.includes(s.id?.toLowerCase()) || blacklist.includes(titleLower);
+            cleanTitle === "apocalypse" ||
+            cleanTitle === "seasons" ||
+            cleanTitle === "double take" ||
+            cleanTitle === "lover";
+          const isBlacklisted =
+            (s.id && blacklist.includes(s.id.toLowerCase())) ||
+            (cleanTitle && blacklist.includes(cleanTitle));
           return !isDummy && !isBlacklisted;
         });
 
         setSongs((current) => {
-          const map = new Map<string, any>();
+          const map = new Map<string, CustomSongItem>();
           current.forEach((s) => {
-            if (!blacklist.includes(s.title?.trim().toLowerCase())) {
-              map.set(s.title?.trim().toLowerCase(), s);
-            }
+            const k = s.title?.trim().toLowerCase();
+            if (k && !blacklist.includes(k)) map.set(k, s);
           });
 
           realDbSongs.forEach((dbS) => {
@@ -259,9 +218,7 @@ export default function MusicPage() {
           });
 
           const merged = Array.from(map.values());
-          if (typeof window !== "undefined") {
-            localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(merged));
-          }
+          saveCleanLocalSongs(merged);
           return merged;
         });
       }
@@ -270,11 +227,9 @@ export default function MusicPage() {
     }
   };
 
-  const persistSongs = (updated: typeof songs) => {
+  const persistSongs = (updated: CustomSongItem[]) => {
     setSongs(updated);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(updated));
-    }
+    saveCleanLocalSongs(updated);
   };
 
   // Auto-set sender based on logged in user
@@ -372,7 +327,7 @@ export default function MusicPage() {
     // Remove from blacklist in case user previously deleted this song
     removeFromBlacklist(selectedTrack.trackName);
 
-    const newSong = {
+    const newSong: CustomSongItem = {
       id: newSongId,
       title: selectedTrack.trackName,
       artist: selectedTrack.artistName,
@@ -416,12 +371,9 @@ export default function MusicPage() {
   };
 
   // Delete Song with Guaranteed Blacklist Filter
-  const handleDeleteSong = async (
-    songToDelete: Song & { album_cover?: string | null; sender_name?: string | null }
-  ) => {
+  const handleDeleteSong = async (songToDelete: CustomSongItem) => {
     // 1. Add to blacklist so Supabase refresh never resurrects it
-    const keysToBlacklist = [songToDelete.id, songToDelete.title];
-    addToBlacklist(keysToBlacklist);
+    addToBlacklist([songToDelete.id, songToDelete.title]);
 
     // 2. Immediately remove from State and LocalStorage
     const updated = songs.filter(

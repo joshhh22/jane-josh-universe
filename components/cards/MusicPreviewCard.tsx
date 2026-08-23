@@ -4,67 +4,70 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
-import type { Song } from "@/lib/supabase/types";
-import { Music, ArrowRight, Disc } from "lucide-react";
-
-const STORAGE_SONGS_KEY = "jane_josh_songs_real_user_only";
+import {
+  getCleanLocalSongs,
+  saveCleanLocalSongs,
+  getBlacklist,
+  type CustomSongItem,
+} from "@/lib/musicStorage";
+import { ArrowRight, Disc } from "lucide-react";
 
 export function MusicPreviewCard() {
   const supabase = useMemo(() => createClient(), []);
-  const [songs, setSongs] = useState<(Song & { album_cover?: string | null; sender_name?: string | null })[]>([]);
+  const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // 1. Load active real songs from LocalStorage & Supabase
+  // 1. Load strictly clean songs matching /music page
   useEffect(() => {
-    let localList: (Song & { album_cover?: string | null; sender_name?: string | null })[] = [];
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem(STORAGE_SONGS_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            localList = parsed;
-            setSongs(parsed);
-          }
-        }
-      } catch (e) {
-        console.error(e);
-      }
+    // Read local clean songs immediately
+    const cleanLocal = getCleanLocalSongs();
+    if (cleanLocal.length > 0) {
+      setSongs(cleanLocal);
     }
 
-    // Fetch from Supabase and merge
+    // Sync from Supabase while strictly enforcing the blacklist
+    const blacklist = getBlacklist();
     supabase
       .from("songs")
       .select("*")
       .order("created_at", { ascending: false })
       .then(({ data }) => {
         if (data && data.length > 0) {
-          const realDbSongs = data.filter(
-            (s) =>
-              s.title !== "Apocalypse" &&
-              s.title !== "seasons" &&
-              s.title !== "double take" &&
-              s.title !== "Lover"
-          );
+          const realDbSongs = data.filter((s) => {
+            const cleanTitle = s.title?.trim().toLowerCase();
+            const isDummy =
+              cleanTitle === "apocalypse" ||
+              cleanTitle === "seasons" ||
+              cleanTitle === "double take" ||
+              cleanTitle === "lover";
+            const isBlacklisted =
+              (s.id && blacklist.includes(s.id.toLowerCase())) ||
+              (cleanTitle && blacklist.includes(cleanTitle));
+            return !isDummy && !isBlacklisted;
+          });
 
-          if (realDbSongs.length > 0) {
-            const map = new Map<string, any>();
-            localList.forEach((s) => map.set(s.title.toLowerCase(), s));
+          setSongs((current) => {
+            const map = new Map<string, CustomSongItem>();
+            // Keep local
+            current.forEach((s) => {
+              const k = s.title?.trim().toLowerCase();
+              if (k && !blacklist.includes(k)) map.set(k, s);
+            });
+            // Merge DB
             realDbSongs.forEach((dbS) => {
-              const key = dbS.title.toLowerCase();
-              if (!map.has(key)) {
-                map.set(key, {
+              const k = dbS.title?.trim().toLowerCase();
+              if (k && !map.has(k)) {
+                map.set(k, {
                   ...dbS,
                   sender_name: dbS.recipient === "josh" ? "jane" : "josh",
                 });
               }
             });
+
             const merged = Array.from(map.values());
-            setSongs(merged);
-            if (typeof window !== "undefined") {
-              localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(merged));
-            }
-          }
+            saveCleanLocalSongs(merged);
+            return merged;
+          });
         }
       });
   }, [supabase]);
@@ -101,7 +104,7 @@ export function MusicPreviewCard() {
           <div className="flex items-center gap-1.5">
             {songs.length > 1 && (
               <span className="text-[10px] font-display font-bold text-[#6E675F]">
-                {currentIndex + 1}/{songs.length}
+                {((currentIndex % songs.length) + 1)}/{songs.length}
               </span>
             )}
             <Disc size={16} className="text-[#23201D] animate-spin" style={{ animationDuration: "6s" }} />
