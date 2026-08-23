@@ -4,18 +4,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import type { Song } from "@/lib/supabase/types";
-import { ArrowRight } from "lucide-react";
 
 export function MusicPreviewCard() {
   const supabase = createClient();
-  const [latestSong, setLatestSong] = useState<(Song & { album_cover?: string | null; recipient?: string | null }) | null>({
+  const [latestSong, setLatestSong] = useState<(Song & { album_cover?: string | null; sender_name?: string | null }) | null>({
     id: "song_1",
     title: "Apocalypse",
     artist: "Cigarettes After Sex",
-    album_cover: "https://i.scdn.co/image/ab67616d0000b273b40092285e683416e9c93a0b",
+    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg",
     reason: "i still use the playlist u made pas aku sedih... it still helps somehow",
-    recipient: "jane",
     added_by: "josh_id",
+    sender_name: "josh",
     url: "https://open.spotify.com/track/3AVrVz5rKTrbeAcgpEt6uk",
     created_at: new Date().toISOString(),
   });
@@ -28,17 +27,26 @@ export function MusicPreviewCard() {
       .limit(1)
       .single()
       .then(({ data }) => {
-        if (data) setLatestSong(data as typeof latestSong);
+        if (data) {
+          setLatestSong({
+            ...(data as Song),
+            sender_name: data.recipient === "josh" ? "jane" : "josh",
+          });
+        }
       });
   }, []);
+
+  const isFromJane = latestSong?.sender_name === "jane";
 
   return (
     <Link href="/music" className="block h-full">
       <div className="neu-card neu-card-hover h-full p-4 bg-[#EDE9FE] flex flex-col justify-between group">
-        {/* Header Badge */}
+        {/* Header Badge: From: jane / From: josh */}
         <div className="flex items-center justify-between">
-          <div className="bg-[#FAF5EE] border border-[#23201D]/20 px-2.5 py-0.5 rounded-full text-[10px] font-display font-bold text-[#23201D]">
-            <span>To: {latestSong?.recipient || "jane"}</span>
+          <div className="bg-[#FAF5EE] border border-[#23201D]/20 px-2.5 py-0.5 rounded-full text-[10px] font-display font-bold text-[#23201D] flex items-center gap-1">
+            <span className="text-[#6E675F] font-normal">From:</span>
+            <span>{latestSong?.sender_name || "josh"}</span>
+            <span>{isFromJane ? "🌸" : "💻"}</span>
           </div>
           <span className="font-hand text-xs text-[#6E675F]">spotify letter 🎵</span>
         </div>
@@ -50,16 +58,16 @@ export function MusicPreviewCard() {
           </p>
         </div>
 
-        {/* Spotify Bottom Bar with Album Art */}
+        {/* Spotify Bottom Bar with Real Album Art */}
         <div className="bg-[#FFFFFF]/90 p-2 rounded-xl border border-[#23201D]/15 flex items-center justify-between gap-2 shadow-sm">
           <div className="flex items-center gap-2 min-w-0">
             <img
               src={
                 latestSong?.album_cover ||
-                "https://i.scdn.co/image/ab67616d0000b273b40092285e683416e9c93a0b"
+                "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg"
               }
               alt={latestSong?.title || "Album Cover"}
-              className="w-8 h-8 rounded-lg object-cover border border-[#23201D]/20 flex-shrink-0"
+              className="w-8 h-8 rounded-lg object-cover border border-[#23201D]/20 flex-shrink-0 bg-[#23201D]"
               onError={(e) => {
                 (e.target as HTMLImageElement).src =
                   "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&auto=format&fit=crop&q=80";

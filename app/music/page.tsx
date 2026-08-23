@@ -11,103 +11,103 @@ import { useToast } from "@/components/providers/ToastProvider";
 import type { Song } from "@/lib/supabase/types";
 import {
   Plus,
-  ExternalLink,
   Music,
   Disc,
   X,
   Sparkles,
   Heart,
   Trash2,
-  Play,
-  Volume2,
+  Search,
+  Check,
+  Loader2,
 } from "lucide-react";
 
-const STORAGE_SONGS_KEY = "jane_josh_songs_v2";
+const STORAGE_SONGS_KEY = "jane_josh_songs_v3_from";
 
-// Default Song Letter Cards with Real Album Covers & Sentimental Letters
-const DEFAULT_SONGS: (Song & { album_cover?: string; recipient?: string })[] = [
+// Default Song Letter Cards with Verified High-Res Album Art
+const DEFAULT_SONGS: (Song & { album_cover?: string; sender_name?: string })[] = [
   {
     id: "song_1",
     title: "Apocalypse",
     artist: "Cigarettes After Sex",
-    album_cover: "https://i.scdn.co/image/ab67616d0000b273b40092285e683416e9c93a0b",
+    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/3AVrVz5rKTrbeAcgpEt6uk",
     reason: "i still use the playlist u made pas aku sedih... it still helps somehow",
-    recipient: "jane",
     added_by: "josh_id",
+    sender_name: "josh",
     created_at: "2026-01-01T00:00:00Z",
   },
   {
     id: "song_2",
     title: "seasons",
     artist: "wave to earth",
-    album_cover: "https://i.scdn.co/image/ab67616d0000b2737c35e3810243491d90c00d4d",
+    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/fa/c5/61/fac561dc-8db4-b2e9-d3db-6e246da72bfa/5054197890017.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/1P0sF0b686e0lU5tY7o45S",
     reason: "lagu ini selalu ngingetin aku waktu kita naik mobil malem-malem sambil liatin lampu kota bareng kamu ♡",
-    recipient: "josh",
     added_by: "jane_id",
+    sender_name: "jane",
     created_at: "2026-01-02T00:00:00Z",
   },
   {
     id: "song_3",
     title: "double take",
     artist: "dhruv",
-    album_cover: "https://i.scdn.co/image/ab67616d0000b273a7d9de748c9df48d08cbda2c",
+    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/dc/72/7e/dc727e4b-a63e-324c-be9f-86f78f8cb080/196589088628.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/2qX5YezrzNTDEQ9Mu4Aq4M",
     reason: "do you remember the day i first realized i was completely in love with you? this song captures that exact feeling.",
-    recipient: "jane",
     added_by: "josh_id",
+    sender_name: "josh",
     created_at: "2026-01-03T00:00:00Z",
   },
   {
     id: "song_4",
     title: "Lover",
     artist: "Taylor Swift",
-    album_cover: "https://i.scdn.co/image/ab67616d0000b273e787cffec20aa2a396a61647",
+    album_cover: "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/74/d3/18/74d31835-cc01-9a7c-54be-930f7c22df65/19UMGIM70868.rgb.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/1dGr1c8CrMLDpV6mPb2Ovg",
     reason: "can i go where you go? can we always be this close forever and ever and ever? 💗",
-    recipient: "josh",
     added_by: "jane_id",
+    sender_name: "jane",
     created_at: "2026-01-04T00:00:00Z",
   },
 ];
 
-// Quick Song Presets for Easy Adding
+// Popular Song Presets with Verified High-Res Covers
 const SONG_PRESETS = [
   {
     title: "Apocalypse",
     artist: "Cigarettes After Sex",
-    cover: "https://i.scdn.co/image/ab67616d0000b273b40092285e683416e9c93a0b",
+    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/3AVrVz5rKTrbeAcgpEt6uk",
   },
   {
     title: "seasons",
     artist: "wave to earth",
-    cover: "https://i.scdn.co/image/ab67616d0000b2737c35e3810243491d90c00d4d",
+    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/fa/c5/61/fac561dc-8db4-b2e9-d3db-6e246da72bfa/5054197890017.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/1P0sF0b686e0lU5tY7o45S",
   },
   {
     title: "double take",
     artist: "dhruv",
-    cover: "https://i.scdn.co/image/ab67616d0000b273a7d9de748c9df48d08cbda2c",
+    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/dc/72/7e/dc727e4b-a63e-324c-be9f-86f78f8cb080/196589088628.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/2qX5YezrzNTDEQ9Mu4Aq4M",
   },
   {
     title: "Lover",
     artist: "Taylor Swift",
-    cover: "https://i.scdn.co/image/ab67616d0000b273e787cffec20aa2a396a61647",
+    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/74/d3/18/74d31835-cc01-9a7c-54be-930f7c22df65/19UMGIM70868.rgb.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/1dGr1c8CrMLDpV6mPb2Ovg",
   },
   {
     title: "Until I Found You",
     artist: "Stephen Sanchez",
-    cover: "https://i.scdn.co/image/ab67616d0000b27339794cb4c28bb0f15c7e145f",
+    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/21/f4/bf/21f4bf39-3994-0f18-6363-2287413697e8/22UMGIM78051.rgb.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/0T5iIrttAqIkxKaTw4zSPi",
   },
   {
     title: "About You",
     artist: "The 1975",
-    cover: "https://i.scdn.co/image/ab67616d0000b2731c3603d7c54162e088d447a1",
+    cover: "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/7e/4d/78/7e4d7883-e18e-eb7c-47b8-f0331005bc1d/22UMGIM92150.rgb.jpg/600x600bb.jpg",
     url: "https://open.spotify.com/track/1fDFclhg60MuWGDvdwxvd9",
   },
 ];
@@ -121,21 +121,21 @@ function SpotifyIcon({ className = "w-5 h-5" }: { className?: string }) {
   );
 }
 
-// ─── MUSIC LETTER CARD (Matches Screenshot Exactly) ──────────
+// ─── MUSIC LETTER CARD (Matches Screenshot Exactly with "From:") ──────────
 function MusicLetterCard({
   song,
   isAdmin,
   onDelete,
 }: {
-  song: Song & { album_cover?: string | null; recipient?: string | null };
+  song: Song & { album_cover?: string | null; sender_name?: string | null };
   isAdmin: boolean;
   onDelete: (id: string) => void;
 }) {
-  const isForJane = song.recipient === "jane";
-  const recipientName = isForJane ? "jane" : "josh";
+  const isFromJane = song.sender_name === "jane";
+  const senderLabel = isFromJane ? "jane" : "josh";
   const defaultCover =
     song.album_cover ||
-    "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&auto=format&fit=crop&q=80";
+    "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg";
 
   return (
     <motion.div
@@ -147,10 +147,11 @@ function MusicLetterCard({
     >
       {/* Top Header Row */}
       <div className="p-4 pb-1 flex items-center justify-between">
-        {/* Recipient Pill */}
-        <div className="bg-[#FAF5EE] border border-[#2C2824]/20 px-3 py-1 rounded-full flex items-center gap-1 text-xs font-display font-bold text-[#2C2824]">
-          <span className="text-[#7A7269] font-normal">To:</span>
-          <span>{recipientName}</span>
+        {/* Sender Pill: "From: marcel" style */}
+        <div className="bg-[#FAF5EE] border border-[#2C2824]/20 px-3 py-1 rounded-full flex items-center gap-1.5 text-xs font-display font-bold text-[#2C2824]">
+          <span className="text-[#7A7269] font-normal">From:</span>
+          <span>{senderLabel}</span>
+          <span>{isFromJane ? "🌸" : "💻"}</span>
         </div>
 
         {/* Delete Button (If Admin) */}
@@ -175,13 +176,12 @@ function MusicLetterCard({
       {/* Bottom Row: Spotify Song Banner */}
       <div className="p-3.5 bg-[#F3F4F6] border-t-2 border-[#2C2824]/10 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          {/* Album Cover Art */}
+          {/* Real High-Res Album Cover Art */}
           <img
             src={defaultCover}
             alt={song.title}
             className="w-12 h-12 rounded-lg object-cover border border-[#2C2824]/15 shadow-sm flex-shrink-0 bg-[#2C2824]"
             onError={(e) => {
-              // Fallback image if broken
               (e.target as HTMLImageElement).src =
                 "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=200&auto=format&fit=crop&q=80";
             }}
@@ -223,7 +223,7 @@ export default function MusicPage() {
   const { showToast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
-  const [songs, setSongs] = useState<(Song & { album_cover?: string | null; recipient?: string | null })[]>(DEFAULT_SONGS);
+  const [songs, setSongs] = useState<(Song & { album_cover?: string | null; sender_name?: string | null })[]>(DEFAULT_SONGS);
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -233,12 +233,13 @@ export default function MusicPage() {
   const [formUrl, setFormUrl] = useState("");
   const [formCover, setFormCover] = useState("");
   const [formReason, setFormReason] = useState("");
-  const [formRecipient, setFormRecipient] = useState<"jane" | "josh">("jane");
+  const [formSender, setFormSender] = useState<"jane" | "josh">("josh");
   const [adding, setAdding] = useState(false);
+  const [isFetchingArt, setIsFetchingArt] = useState(false);
 
   // Load from Storage + Supabase
   const loadSongs = async () => {
-    let localSaved: (Song & { album_cover?: string | null; recipient?: string | null })[] = [];
+    let localSaved: (Song & { album_cover?: string | null; sender_name?: string | null })[] = [];
     if (typeof window !== "undefined") {
       try {
         const stored = localStorage.getItem(STORAGE_SONGS_KEY);
@@ -255,13 +256,11 @@ export default function MusicPage() {
         .order("created_at", { ascending: false });
 
       if (dbSongs && dbSongs.length > 0) {
-        const merged = [...dbSongs];
-        localSaved.forEach((loc) => {
-          if (!merged.some((m) => m.id === loc.id || m.title === loc.title)) {
-            merged.push(loc);
-          }
-        });
-        setSongs(merged);
+        const formatted = dbSongs.map((s) => ({
+          ...s,
+          sender_name: s.recipient === "josh" ? "jane" : "josh",
+        }));
+        setSongs(formatted);
         return;
       }
     } catch (err) {
@@ -284,11 +283,37 @@ export default function MusicPage() {
     }
   };
 
-  // Auto-set recipient based on logged in user
+  // Auto-set sender based on logged in user
   useEffect(() => {
-    if (isJosh) setFormRecipient("jane");
-    if (isJane) setFormRecipient("josh");
+    if (isJane) setFormSender("jane");
+    if (isJosh) setFormSender("josh");
   }, [isJosh, isJane]);
+
+  // Automatic Album Art Fetcher using Apple/Spotify Search API
+  const fetchAlbumArt = async (title: string, artist: string) => {
+    if (!title.trim()) return;
+    setIsFetchingArt(true);
+    try {
+      const query = `${title} ${artist}`.trim();
+      const res = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=1`
+      );
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        const rawArt: string = data.results[0].artworkUrl100;
+        const highResArt = rawArt.replace("100x100bb.jpg", "600x600bb.jpg");
+        setFormCover(highResArt);
+        if (!formArtist && data.results[0].artistName) {
+          setFormArtist(data.results[0].artistName);
+        }
+        showToast("Official album cover found! 🎨", { emoji: "✨" });
+      }
+    } catch (err) {
+      console.error("Failed to fetch artwork:", err);
+    } finally {
+      setIsFetchingArt(false);
+    }
+  };
 
   // Quick Preset Click
   const handleSelectPreset = (preset: typeof SONG_PRESETS[0]) => {
@@ -310,13 +335,19 @@ export default function MusicPage() {
 
     setAdding(true);
 
+    const targetUser = formSender === "josh" ? "jane" : "josh";
+    const finalCover =
+      formCover.trim() ||
+      "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/b3/5e/0f/b35e0fbe-2370-fc48-0f0c-977525e93bf2/720841214601_Cover.jpg/600x600bb.jpg";
+
     const newSong = {
       id: "song_" + Date.now(),
       title: formTitle.trim(),
       artist: formArtist.trim(),
       url: formUrl.trim() || `https://open.spotify.com/search/${encodeURIComponent(formTitle + " " + formArtist)}`,
-      album_cover: formCover.trim() || "https://i.scdn.co/image/ab67616d0000b273b40092285e683416e9c93a0b",
-      recipient: formRecipient,
+      album_cover: finalCover,
+      sender_name: formSender,
+      recipient: targetUser,
       reason: formReason.trim(),
       added_by: user?.id || "guest",
       created_at: new Date().toISOString(),
@@ -333,7 +364,7 @@ export default function MusicPage() {
         artist: newSong.artist,
         url: newSong.url,
         album_cover: newSong.album_cover,
-        recipient: newSong.recipient,
+        recipient: targetUser,
         reason: newSong.reason,
         added_by: user?.id,
       });
@@ -341,7 +372,7 @@ export default function MusicPage() {
       console.error(err);
     }
 
-    showToast(`Music letter sent to ${formRecipient === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
+    showToast(`Music letter sent From: ${formSender === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
       emoji: "🎵",
       type: "love",
     });
@@ -371,8 +402,8 @@ export default function MusicPage() {
 
   // Filter songs
   const filteredSongs = useMemo(() => {
-    if (filter === "jane") return songs.filter((s) => s.recipient === "jane");
-    if (filter === "josh") return songs.filter((s) => s.recipient === "josh");
+    if (filter === "jane") return songs.filter((s) => s.sender_name === "jane");
+    if (filter === "josh") return songs.filter((s) => s.sender_name === "josh");
     return songs;
   }, [songs, filter]);
 
@@ -393,7 +424,7 @@ export default function MusicPage() {
                 our soundtrack &amp; letters 🎧
               </h1>
               <p className="font-hand text-xl text-[#7A7269] mt-0.5">
-                songs we dedicated to each other with sweet handwritten notes ♡
+                handwritten letters attached to our favorite songs ♡
               </p>
             </div>
 
@@ -402,8 +433,8 @@ export default function MusicPage() {
               <div className="flex items-center gap-1 bg-[#FFFDF9] p-1 rounded-xl border-2 border-[#2C2824] shadow-[2px_2px_0px_#2C2824]">
                 {[
                   { id: "all", label: "All Songs" },
-                  { id: "jane", label: "To: Jane 🌸" },
-                  { id: "josh", label: "To: Josh 💻" },
+                  { id: "jane", label: "From: Jane 🌸" },
+                  { id: "josh", label: "From: Josh 💻" },
                 ].map((f) => (
                   <button
                     key={f.id}
@@ -425,7 +456,7 @@ export default function MusicPage() {
                   className="neu-btn neu-btn-pink text-xs py-2 px-4 shadow-[3px_3px_0px_#2C2824] flex items-center gap-1.5"
                 >
                   <Plus size={14} />
-                  <span>Dedicate a Song</span>
+                  <span>Dedicate a Song Letter</span>
                 </button>
               )}
             </div>
@@ -444,7 +475,9 @@ export default function MusicPage() {
                   <div className="flex items-center justify-between border-b-2 border-[#2C2824]/10 pb-3">
                     <h2 className="font-display font-black text-xl text-[#2C2824] flex items-center gap-2">
                       <span>💌</span>
-                      <span>Dedicate a Spotify Song Letter</span>
+                      <span>
+                        Dedicate a Spotify Song Letter from {formSender === "jane" ? "Jane 🌸" : "Josh 💻"}
+                      </span>
                     </h2>
                     <button
                       onClick={() => setShowAdd(false)}
@@ -474,33 +507,33 @@ export default function MusicPage() {
                   </div>
 
                   <div className="space-y-4">
-                    {/* Recipient Selector */}
+                    {/* Sender Selector */}
                     <div className="space-y-1.5">
                       <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824] block">
-                        Dedicate To:
+                        Letter Sent From:
                       </label>
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => setFormRecipient("jane")}
+                          onClick={() => setFormSender("josh")}
                           className={`flex-1 py-2 px-3 rounded-xl border-2 font-display font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                            formRecipient === "jane"
-                              ? "bg-[#FFCCD5] border-[#2C2824] shadow-[2px_2px_0px_#2C2824]"
-                              : "bg-[#FFFDF9] border-[#2C2824]/30"
-                          }`}
-                        >
-                          <span>🌸 To: Jane (Jane will receive this)</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFormRecipient("josh")}
-                          className={`flex-1 py-2 px-3 rounded-xl border-2 font-display font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
-                            formRecipient === "josh"
+                            formSender === "josh"
                               ? "bg-[#BAE6FD] border-[#2C2824] shadow-[2px_2px_0px_#2C2824]"
                               : "bg-[#FFFDF9] border-[#2C2824]/30"
                           }`}
                         >
-                          <span>💻 To: Josh (Josh will receive this)</span>
+                          <span>💻 From: Josh (Josh gives to Jane)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormSender("jane")}
+                          className={`flex-1 py-2 px-3 rounded-xl border-2 font-display font-bold text-xs flex items-center justify-center gap-1.5 transition-all ${
+                            formSender === "jane"
+                              ? "bg-[#FFCCD5] border-[#2C2824] shadow-[2px_2px_0px_#2C2824]"
+                              : "bg-[#FFFDF9] border-[#2C2824]/30"
+                          }`}
+                        >
+                          <span>🌸 From: Jane (Jane gives to Josh)</span>
                         </button>
                       </div>
                     </div>
@@ -526,13 +559,26 @@ export default function MusicPage() {
                         <label className="font-display font-bold text-xs text-[#2C2824]">
                           Song Title *
                         </label>
-                        <input
-                          value={formTitle}
-                          onChange={(e) => setFormTitle(e.target.value)}
-                          placeholder="e.g. Apocalypse"
-                          required
-                          className="w-full border-2 border-[#2C2824] rounded-xl px-3 py-2 text-sm font-body bg-[#FFFDF9] focus:outline-none"
-                        />
+                        <div className="flex gap-1.5">
+                          <input
+                            value={formTitle}
+                            onChange={(e) => setFormTitle(e.target.value)}
+                            onBlur={() => {
+                              if (formTitle && !formCover) fetchAlbumArt(formTitle, formArtist);
+                            }}
+                            placeholder="e.g. Apocalypse"
+                            required
+                            className="w-full border-2 border-[#2C2824] rounded-xl px-3 py-2 text-sm font-body bg-[#FFFDF9] focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => fetchAlbumArt(formTitle, formArtist)}
+                            className="p-2.5 rounded-xl border-2 border-[#2C2824] bg-[#FEF08A] hover:bg-[#FDE047] flex-shrink-0"
+                            title="Auto-search Spotify album cover"
+                          >
+                            {isFetchingArt ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
+                          </button>
+                        </div>
                       </div>
 
                       <div className="space-y-1">
@@ -548,16 +594,27 @@ export default function MusicPage() {
                         />
                       </div>
 
+                      {/* Live Album Cover Artwork Preview */}
                       <div className="space-y-1 sm:col-span-2">
-                        <label className="font-display font-bold text-xs text-[#2C2824]">
-                          Album Cover Image URL (Optional)
+                        <label className="font-display font-bold text-xs text-[#2C2824] flex items-center justify-between">
+                          <span>Album Cover Art (Auto-detected from Spotify / Apple Music):</span>
+                          {formCover && <span className="text-emerald-700 text-[10px] font-bold">✓ Cover Attached</span>}
                         </label>
-                        <input
-                          value={formCover}
-                          onChange={(e) => setFormCover(e.target.value)}
-                          placeholder="e.g. https://i.scdn.co/image/... (or paste any image link)"
-                          className="w-full border-2 border-[#2C2824] rounded-xl px-3 py-2 text-sm font-body bg-[#FFFDF9] focus:outline-none"
-                        />
+                        <div className="flex items-center gap-3">
+                          {formCover && (
+                            <img
+                              src={formCover}
+                              alt="Cover Preview"
+                              className="w-14 h-14 rounded-xl object-cover border-2 border-[#2C2824] shadow-sm flex-shrink-0 bg-[#2C2824]"
+                            />
+                          )}
+                          <input
+                            value={formCover}
+                            onChange={(e) => setFormCover(e.target.value)}
+                            placeholder="Cover image URL (Auto-filled on search)"
+                            className="w-full border-2 border-[#2C2824] rounded-xl px-3 py-2 text-xs font-body bg-[#FFFDF9] focus:outline-none"
+                          />
+                        </div>
                       </div>
 
                       <div className="space-y-1 sm:col-span-2">
@@ -588,7 +645,7 @@ export default function MusicPage() {
                         className="neu-btn neu-btn-pink text-xs py-2.5 px-6 shadow-[3px_3px_0px_#2C2824] disabled:opacity-50 flex items-center gap-1.5"
                       >
                         <Heart size={14} className="fill-current" />
-                        <span>{adding ? "Saving..." : "Send Song Letter 🎵"}</span>
+                        <span>{adding ? "Saving..." : `Send Song Letter from ${formSender} 🎵`}</span>
                       </button>
                     </div>
                   </div>
@@ -597,7 +654,7 @@ export default function MusicPage() {
             )}
           </AnimatePresence>
 
-          {/* Song Letters Grid (2 Columns on Desktop) */}
+          {/* Song Letters Grid */}
           {filteredSongs.length === 0 ? (
             <div className="neu-box p-12 bg-[#FFFDF9] border-2 border-dashed border-[#2C2824]/20 text-center space-y-3">
               <Disc size={40} className="text-[#7A7269] animate-spin mx-auto" style={{ animationDuration: "8s" }} />
