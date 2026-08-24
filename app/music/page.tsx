@@ -2,19 +2,17 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NavBar } from "@/components/layout/NavBar";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
-import type { Song } from "@/lib/supabase/types";
 import {
-  getCleanLocalSongs,
-  saveCleanLocalSongs,
-  getBlacklist,
-  addToBlacklist,
-  removeFromBlacklist,
+  getCachedSongs,
+  setCachedSongs,
+  parseSongRow,
+  encodeSongUrl,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import {
@@ -30,7 +28,6 @@ import {
   RotateCcw,
 } from "lucide-react";
 
-// Search Result Item Type
 interface SearchTrackResult {
   trackId: number;
   trackName: string;
@@ -61,7 +58,7 @@ function MusicLetterCard({
 }) {
   const isFromJane = song.sender_name === "jane";
   const senderLabel = isFromJane ? "jane" : "josh";
-  const defaultCover =
+  const coverUrl =
     song.album_cover ||
     "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&auto=format&fit=crop&q=80";
 
@@ -106,7 +103,7 @@ function MusicLetterCard({
         <div className="flex items-center gap-3 min-w-0">
           {/* High-Res Album Cover Art */}
           <img
-            src={defaultCover}
+            src={coverUrl}
             alt={song.title}
             className="w-12 h-12 rounded-lg object-cover border border-[#2C2824]/15 shadow-sm flex-shrink-0 bg-[#2C2824]"
             onError={(e) => {
@@ -169,68 +166,62 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initial Load: Read strictly from shared getCleanLocalSongs
-  useEffect(() => {
-    const cleanList = getCleanLocalSongs();
-    if (cleanList.length > 0) {
-      setSongs(cleanList);
-    }
-    fetchSupabaseSongs();
-  }, []);
-
-  const fetchSupabaseSongs = async () => {
-    const blacklist = getBlacklist();
+  // Fetch all songs from Cloud Supabase Database
+  const fetchCloudSongs = useCallback(async () => {
     try {
-      const { data: dbSongs } = await supabase
+      const { data: dbSongs, error } = await supabase
         .from("songs")
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (dbSongs && dbSongs.length > 0) {
-        const realDbSongs = dbSongs.filter((s) => {
-          const cleanTitle = s.title?.trim().toLowerCase();
-          const isDummy =
-            cleanTitle === "apocalypse" ||
-            cleanTitle === "seasons" ||
-            cleanTitle === "double take" ||
-            cleanTitle === "lover";
-          const isBlacklisted =
-            (s.id && blacklist.includes(s.id.toLowerCase())) ||
-            (cleanTitle && blacklist.includes(cleanTitle));
-          return !isDummy && !isBlacklisted;
+      if (error) {
+        console.error("Supabase fetch error:", error);
+        return;
+      }
+
+      if (dbSongs) {
+        // Filter out dummy template songs
+        const real = dbSongs.filter((s) => {
+          const t = s.title?.trim().toLowerCase();
+          return t !== "apocalypse" && t !== "seasons" && t !== "double take" && t !== "lover";
         });
 
-        setSongs((current) => {
-          const map = new Map<string, CustomSongItem>();
-          current.forEach((s) => {
-            const k = s.title?.trim().toLowerCase();
-            if (k && !blacklist.includes(k)) map.set(k, s);
-          });
-
-          realDbSongs.forEach((dbS) => {
-            const key = dbS.title?.trim().toLowerCase();
-            if (!map.has(key)) {
-              map.set(key, {
-                ...dbS,
-                sender_name: dbS.recipient === "josh" ? "jane" : "josh",
-              });
-            }
-          });
-
-          const merged = Array.from(map.values());
-          saveCleanLocalSongs(merged);
-          return merged;
-        });
+        const parsed = real.map(parseSongRow);
+        setSongs(parsed);
+        setCachedSongs(parsed);
       }
     } catch (err) {
       console.error(err);
     }
-  };
+  }, [supabase]);
 
-  const persistSongs = (updated: CustomSongItem[]) => {
-    setSongs(updated);
-    saveCleanLocalSongs(updated);
-  };
+  // Initial Load & Realtime Subscription
+  useEffect(() => {
+    // Immediate cached state to prevent layout flash
+    const cached = getCachedSongs();
+    if (cached.length > 0) {
+      setSongs(cached);
+    }
+
+    // Fetch live from Supabase
+    fetchCloudSongs();
+
+    // Subscribe to Realtime Postgres Changes across all browsers/devices
+    const channel = supabase
+      .channel("realtime-songs-channel")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "songs" },
+        () => {
+          fetchCloudSongs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, fetchCloudSongs]);
 
   // Auto-set sender based on logged in user
   useEffect(() => {
@@ -261,9 +252,12 @@ export default function MusicPage() {
             trackId: item.trackId,
             trackName: item.trackName,
             artistName: item.artistName,
-            artworkUrl: item.artworkUrl100?.replace("100x100bb.jpg", "600x600bb.jpg") || item.artworkUrl60,
+            artworkUrl:
+              item.artworkUrl100?.replace("100x100bb.jpg", "600x600bb.jpg") || item.artworkUrl60,
             previewUrl: item.previewUrl,
-            spotifyUrl: `https://open.spotify.com/search/${encodeURIComponent(item.trackName + " " + item.artistName)}`,
+            spotifyUrl: `https://open.spotify.com/search/${encodeURIComponent(
+              item.trackName + " " + item.artistName
+            )}`,
           }));
           setSearchResults(mapped);
         } else {
@@ -316,48 +310,35 @@ export default function MusicPage() {
 
     setAdding(true);
 
-    const targetUser = formSender === "josh" ? "jane" : "josh";
-    const newSongId = "song_" + Date.now();
+    const safeUrl = encodeSongUrl(selectedTrack.spotifyUrl, selectedTrack.artworkUrl, formSender);
     const fallbackUserId =
       user?.id ||
+      profile?.id ||
       (formSender === "josh"
         ? "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe"
         : "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832");
 
-    // Remove from blacklist in case user previously deleted this song
-    removeFromBlacklist(selectedTrack.trackName);
-
-    const newSong: CustomSongItem = {
-      id: newSongId,
+    const payload = {
       title: selectedTrack.trackName,
       artist: selectedTrack.artistName,
-      url: selectedTrack.spotifyUrl,
-      album_cover: selectedTrack.artworkUrl,
-      sender_name: formSender,
-      recipient: targetUser,
+      url: safeUrl,
       reason: formReason.trim(),
       added_by: fallbackUserId,
-      created_at: new Date().toISOString(),
     };
 
-    // 1. Immediately persist to LocalStorage and State
-    const updated = [newSong, ...songs];
-    persistSongs(updated);
+    // 1. Insert to Supabase (Cloud Database)
+    const { data: inserted, error } = await supabase
+      .from("songs")
+      .insert(payload)
+      .select()
+      .single();
 
-    // 2. Background Sync to Supabase
-    try {
-      await supabase.from("songs").insert({
-        title: newSong.title,
-        artist: newSong.artist,
-        url: newSong.url,
-        album_cover: newSong.album_cover,
-        recipient: targetUser,
-        reason: newSong.reason,
-        added_by: fallbackUserId,
-      });
-    } catch (err) {
-      console.error("Supabase insert:", err);
+    if (error) {
+      console.error("Supabase insert error:", error);
     }
+
+    // 2. Refresh Cloud Data
+    await fetchCloudSongs();
 
     showToast(`Music letter sent From: ${formSender === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
       emoji: "🎵",
@@ -370,20 +351,14 @@ export default function MusicPage() {
     setAdding(false);
   };
 
-  // Delete Song with Guaranteed Blacklist Filter
+  // Delete Song
   const handleDeleteSong = async (songToDelete: CustomSongItem) => {
-    // 1. Add to blacklist so Supabase refresh never resurrects it
-    addToBlacklist([songToDelete.id, songToDelete.title]);
+    // Optimistically update UI
+    const updated = songs.filter((s) => s.id !== songToDelete.id);
+    setSongs(updated);
+    setCachedSongs(updated);
 
-    // 2. Immediately remove from State and LocalStorage
-    const updated = songs.filter(
-      (s) =>
-        s.id !== songToDelete.id &&
-        s.title?.trim().toLowerCase() !== songToDelete.title?.trim().toLowerCase()
-    );
-    persistSongs(updated);
-
-    // 3. Delete from Supabase
+    // Delete in Supabase Database
     try {
       if (songToDelete.id) {
         await supabase.from("songs").delete().eq("id", songToDelete.id);
@@ -395,6 +370,7 @@ export default function MusicPage() {
       console.error("Supabase delete error:", err);
     }
 
+    await fetchCloudSongs();
     showToast("Song letter removed 🗑️", { emoji: "🗑️" });
   };
 
@@ -534,7 +510,7 @@ export default function MusicPage() {
                             onFocus={() => {
                               if (searchResults.length > 0) setShowDropdown(true);
                             }}
-                            placeholder="Search and select your song (e.g. Best Part, Lucky, Apocalypse, Lover)"
+                            placeholder="Search and select your song (e.g. Always, Heaven, Kabar Bahagia, Panasea)"
                             className="w-full border-2 border-[#2C2824] rounded-xl px-4 py-2.5 pl-10 text-sm font-body bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824]"
                           />
                           <Search
@@ -622,7 +598,7 @@ export default function MusicPage() {
                       <textarea
                         value={formReason}
                         onChange={(e) => setFormReason(e.target.value)}
-                        placeholder="e.g. 'YOU ARE MY BEST PARTT ♡'"
+                        placeholder="e.g. 'I LOVE YOUU EVERYDAY ♡'"
                         rows={3}
                         required
                         className="w-full border-2 border-[#2C2824] rounded-xl px-3.5 py-2.5 text-base font-hand bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824] resize-none"

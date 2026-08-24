@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { createClient } from "@/lib/supabase/client";
 import {
-  getCleanLocalSongs,
-  saveCleanLocalSongs,
-  getBlacklist,
+  getCachedSongs,
+  setCachedSongs,
+  parseSongRow,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import { ArrowRight, Disc } from "lucide-react";
@@ -17,62 +17,55 @@ export function MusicPreviewCard() {
   const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // 1. Load strictly clean songs matching /music page
-  useEffect(() => {
-    // Read local clean songs immediately
-    const cleanLocal = getCleanLocalSongs();
-    if (cleanLocal.length > 0) {
-      setSongs(cleanLocal);
+  // Fetch all songs from Supabase Cloud DB
+  const fetchCloudSongs = useCallback(async () => {
+    try {
+      const { data: dbSongs } = await supabase
+        .from("songs")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (dbSongs) {
+        const real = dbSongs.filter((s) => {
+          const t = s.title?.trim().toLowerCase();
+          return t !== "apocalypse" && t !== "seasons" && t !== "double take" && t !== "lover";
+        });
+
+        const parsed = real.map(parseSongRow);
+        setSongs(parsed);
+        setCachedSongs(parsed);
+      }
+    } catch (err) {
+      console.error(err);
     }
-
-    // Sync from Supabase while strictly enforcing the blacklist
-    const blacklist = getBlacklist();
-    supabase
-      .from("songs")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          const realDbSongs = data.filter((s) => {
-            const cleanTitle = s.title?.trim().toLowerCase();
-            const isDummy =
-              cleanTitle === "apocalypse" ||
-              cleanTitle === "seasons" ||
-              cleanTitle === "double take" ||
-              cleanTitle === "lover";
-            const isBlacklisted =
-              (s.id && blacklist.includes(s.id.toLowerCase())) ||
-              (cleanTitle && blacklist.includes(cleanTitle));
-            return !isDummy && !isBlacklisted;
-          });
-
-          setSongs((current) => {
-            const map = new Map<string, CustomSongItem>();
-            // Keep local
-            current.forEach((s) => {
-              const k = s.title?.trim().toLowerCase();
-              if (k && !blacklist.includes(k)) map.set(k, s);
-            });
-            // Merge DB
-            realDbSongs.forEach((dbS) => {
-              const k = dbS.title?.trim().toLowerCase();
-              if (k && !map.has(k)) {
-                map.set(k, {
-                  ...dbS,
-                  sender_name: dbS.recipient === "josh" ? "jane" : "josh",
-                });
-              }
-            });
-
-            const merged = Array.from(map.values());
-            saveCleanLocalSongs(merged);
-            return merged;
-          });
-        }
-      });
   }, [supabase]);
 
-  // 2. Auto-cycle songs every 4 seconds with smooth fade-in
+  // Initial load & Realtime cross-device subscription
+  useEffect(() => {
+    const cached = getCachedSongs();
+    if (cached.length > 0) {
+      setSongs(cached);
+    }
+
+    fetchCloudSongs();
+
+    const channel = supabase
+      .channel("realtime-bento-music-channel")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "songs" },
+        () => {
+          fetchCloudSongs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, fetchCloudSongs]);
+
+  // Auto-cycle songs every 4 seconds with smooth fade-in
   useEffect(() => {
     if (songs.length <= 1) return;
     const interval = setInterval(() => {
