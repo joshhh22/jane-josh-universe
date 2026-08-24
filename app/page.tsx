@@ -139,21 +139,22 @@ export default function Home() {
               <MemoryPreviewCard />
             </motion.div>
 
-            {/* ROW 5: Pet Widget (6 cols) + Stats Card (6 cols) */}
+            {/* ROW 5: Pet Widget (12 cols) */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="md:col-span-6 min-h-[240px]"
+              className="md:col-span-12 min-h-[200px]"
             >
               <PetWidget />
             </motion.div>
 
+            {/* ROW 6: Stats Card (12 cols - Full-Width Grand Universe Metrics) */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.55 }}
-              className="md:col-span-6 min-h-[240px]"
+              className="md:col-span-12"
             >
               <StatsCard />
             </motion.div>

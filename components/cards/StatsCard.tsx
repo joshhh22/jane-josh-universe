@@ -37,7 +37,7 @@ export function StatsCard() {
     { label: "Memories Kept", val: stats.memories, emoji: "📸", bg: "#E0F2FE" },
     { label: "Daily Answers", val: stats.answers, emoji: "💭", bg: "#FEF9C3" },
     { label: "Secret Rooms", val: "? / 7", emoji: "🔐", bg: "#FED7AA" },
-    { label: "Love Index", val: "∞ MAX", emoji: "💗", bg: "#DCFCE7" },
+    { label: "Love Index", val: "∞", badge: "MAX", emoji: "💗", bg: "#DCFCE7" },
   ];
 
   return (
@@ -61,17 +61,24 @@ export function StatsCard() {
         {metrics.map((m) => (
           <div
             key={m.label}
-            className="p-3.5 rounded-2xl border-1.5 border-[#23201D] shadow-[2px_2px_0px_#23201D] flex flex-col justify-between"
+            className="p-3 sm:p-3.5 rounded-2xl border-1.5 border-[#23201D] shadow-[2px_2px_0px_#23201D] flex flex-col justify-between overflow-hidden"
             style={{ backgroundColor: m.bg }}
           >
-            <div className="flex justify-between items-center text-xl mb-1">
+            <div className="flex justify-between items-center text-lg sm:text-xl mb-1">
               <span>{m.emoji}</span>
               <Sparkles size={11} className="opacity-30 text-[#23201D]" />
             </div>
-            <div className="font-display font-black text-2xl text-[#23201D]">
-              {m.val}
+            <div className="flex items-baseline gap-1 my-1">
+              <span className="font-display font-black text-xl sm:text-2xl text-[#23201D] truncate">
+                {m.val}
+              </span>
+              {m.badge && (
+                <span className="text-[10px] font-display font-black px-1.5 py-0.5 bg-[#23201D] text-[#FFFFFF] rounded-md shadow-sm">
+                  {m.badge}
+                </span>
+              )}
             </div>
-            <div className="font-display font-bold text-[10px] uppercase tracking-wider text-[#23201D]/75 mt-0.5">
+            <div className="font-display font-bold text-[9px] sm:text-[10px] uppercase tracking-wider text-[#23201D]/75 leading-tight">
               {m.label}
             </div>
           </div>
