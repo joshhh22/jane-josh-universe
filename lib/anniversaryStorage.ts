@@ -12,7 +12,7 @@ export const MILESTONES: LoveMilestone[] = [
     id: "day-1",
     days: 1,
     title: "The Beginning",
-    subtitle: "28 Mei — Where Our Universe Began",
+    subtitle: "28 Mei 2026 — Where Our Universe Began",
     emoji: "🌸",
     description: "The sweetest day when Josh & Jane officially chose each other ♡",
   },
@@ -78,7 +78,7 @@ export const LOVE_REASONS = [
   "Because your laugh is literally the sweetest sound in the universe.",
   "Because you always know how to make my day 1000x brighter just by existing.",
   "Because having you in my life feels like finding home in another person.",
-  "Because our 28 Mei date is the best decision we ever made ♡",
+  "Because our 28 Mei 2026 date is the best decision we ever made ♡",
   "Because you are effortlessly gorgeous, cute, and full of warmth.",
   "Because even in silence, being with you feels so calm and safe.",
   "Because I fall for you a little more every single morning.",
@@ -86,8 +86,8 @@ export const LOVE_REASONS = [
   "Because your happiness is my favorite priority in this world.",
 ];
 
-export function getAnniversaryDate(year: number = 2025): Date {
-  return new Date(year, 4, 28, 0, 0, 0); // Month is 0-indexed, so 4 = May
+export function getAnniversaryDate(year: number = 2026): Date {
+  return new Date(year, 4, 28, 0, 0, 0); // Month 4 is May (0-indexed)
 }
 
 export function calculateLoveStats(startDate: Date, now: Date = new Date()) {
@@ -104,15 +104,15 @@ export function calculateLoveStats(startDate: Date, now: Date = new Date()) {
   const seconds = totalSeconds % 60;
   const milliseconds = Math.floor((diffMs % 1000) / 10); // 2 digits (0-99)
 
-  // Average human resting heartbeat: ~75-80 bpm => ~110,000 beats per day
+  // Average human resting heartbeat: ~78 bpm
   const estimatedHeartbeats = Math.floor(totalMinutes * 78);
   const estimatedHugsKisses = Math.floor(totalDays * 12);
   const estimatedLaughter = Math.floor(totalDays * 18);
 
-  // Next 28 Mei calculation
+  // Next 28 Mei calculation (Targeting May 28, 2027)
   const currentYear = now.getFullYear();
   let nextAnniv = new Date(currentYear, 4, 28, 0, 0, 0);
-  if (now.getTime() > nextAnniv.getTime()) {
+  if (now.getTime() >= nextAnniv.getTime()) {
     nextAnniv = new Date(currentYear + 1, 4, 28, 0, 0, 0);
   }
 

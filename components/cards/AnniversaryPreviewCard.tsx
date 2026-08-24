@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { calculateLoveStats, getAnniversaryDate } from "@/lib/anniversaryStorage";
-import { Heart, ArrowRight, Sparkles, Clock } from "lucide-react";
+import { Heart, ArrowRight, Sparkles } from "lucide-react";
 
 export function AnniversaryPreviewCard() {
   const [now, setNow] = useState<Date>(new Date());
@@ -16,7 +16,7 @@ export function AnniversaryPreviewCard() {
     return () => clearInterval(interval);
   }, []);
 
-  const startDate = useMemo(() => getAnniversaryDate(2025), []);
+  const startDate = useMemo(() => getAnniversaryDate(2026), []);
   const stats = useMemo(() => calculateLoveStats(startDate, now), [startDate, now]);
 
   return (
@@ -26,7 +26,7 @@ export function AnniversaryPreviewCard() {
         <div className="flex items-center justify-between">
           <div className="bg-[#FFFDF9] border border-[#2C2824] px-2.5 py-0.5 rounded-full text-[10px] font-display font-bold text-[#2C2824] flex items-center gap-1.5 shadow-sm">
             <Heart size={12} className="fill-rose-500 text-rose-500 animate-pulse" />
-            <span>Official Since 28 Mei</span>
+            <span>Official Since 28 Mei 2026</span>
           </div>
 
           <div className="flex items-center gap-1 bg-[#FFFDF9]/80 px-2 py-0.5 rounded-full border border-[#2C2824]/20 text-[10px] font-display font-bold text-[#2C2824]">

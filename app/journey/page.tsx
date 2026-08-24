@@ -11,25 +11,19 @@ import {
   getAnniversaryDate,
   MILESTONES,
   LOVE_REASONS,
-  type LoveMilestone,
 } from "@/lib/anniversaryStorage";
 import {
   Heart,
   Sparkles,
   Calendar,
   Clock,
-  Flame,
-  Award,
-  Gift,
   PartyPopper,
-  Compass,
-  ArrowRight,
   Smile,
   Zap,
 } from "lucide-react";
 
 export default function JourneyPage() {
-  const [selectedYear, setSelectedYear] = useState<number>(2025);
+  const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [now, setNow] = useState<Date>(new Date());
   const [activeReasonIndex, setActiveReasonIndex] = useState(0);
   const [isCelebrated, setIsCelebrated] = useState(false);
@@ -75,7 +69,7 @@ export default function JourneyPage() {
                 <span>Our Official Love Chronicle</span>
               </div>
               <h1 className="font-display font-black text-3xl sm:text-5xl text-[#2C2824] tracking-tight">
-                28 mei &bull; infinite love ⏳
+                28 mei 2026 &bull; infinite love ⏳
               </h1>
               <p className="font-hand text-xl sm:text-2xl text-[#7A7269] mt-1">
                 every second, minute, and day spent falling deeper in love with Jane ♡
@@ -85,21 +79,11 @@ export default function JourneyPage() {
             {/* Anniversary Date Selector */}
             <div className="flex items-center gap-2 bg-[#FFFDF9] p-2 rounded-2xl border-2 border-[#2C2824] shadow-[3px_3px_0px_#2C2824]">
               <Calendar size={16} className="text-[#2C2824] ml-1" />
-              <span className="font-display font-bold text-xs text-[#7A7269]">Anniversary:</span>
+              <span className="font-display font-bold text-xs text-[#7A7269]">Official Date:</span>
               <div className="flex items-center gap-1">
-                <span className="font-display font-black text-xs px-2 py-1 bg-[#FEF08A] border border-[#2C2824] rounded-lg text-[#2C2824]">
-                  28 Mei
+                <span className="font-display font-black text-xs px-2.5 py-1 bg-[#FFCCD5] border border-[#2C2824] rounded-lg text-[#2C2824]">
+                  28 Mei 2026 🌸
                 </span>
-                <select
-                  value={selectedYear}
-                  onChange={(e) => setSelectedYear(Number(e.target.value))}
-                  className="bg-[#FAF5EE] border border-[#2C2824] font-display font-bold text-xs rounded-lg px-2 py-1 text-[#2C2824] focus:outline-none cursor-pointer"
-                >
-                  <option value={2026}>2026</option>
-                  <option value={2025}>2025</option>
-                  <option value={2024}>2024</option>
-                  <option value={2023}>2023</option>
-                </select>
               </div>
             </div>
           </div>
@@ -124,7 +108,7 @@ export default function JourneyPage() {
                   </span>
                 </div>
                 <div className="font-hand text-lg text-[#7A7269]">
-                  Counting live since 28 May {selectedYear}, 00:00:00 WIB
+                  Official since 28 Mei 2026, 00:00:00 WIB
                 </div>
               </div>
 
@@ -187,7 +171,7 @@ export default function JourneyPage() {
                       ~{stats.estimatedHeartbeats.toLocaleString()} Heartbeats Exchanged ♡
                     </p>
                     <p className="font-body text-xs text-[#7A7269]">
-                      our hearts beating in sync since the very first day
+                      our hearts beating in sync since 28 Mei 2026
                     </p>
                   </div>
                 </div>
@@ -258,10 +242,10 @@ export default function JourneyPage() {
                 <span className="text-2xl">🎂</span>
                 <div>
                   <h2 className="font-display font-black text-xl text-[#2C2824]">
-                    Next Anniversary Countdown: 28 Mei {stats.nextAnniv.targetYear}
+                    Next Anniversary: 28 Mei {stats.nextAnniv.targetYear} (1 Year Anniversary)
                   </h2>
                   <p className="font-hand text-base text-[#2C2824]/80">
-                    Counting down the days until our special celebration day ♡
+                    Counting down the days until our 1-year celebration day ♡
                   </p>
                 </div>
               </div>
@@ -293,7 +277,7 @@ export default function JourneyPage() {
             {/* Annual Progress Bar */}
             <div className="space-y-1.5 pt-2">
               <div className="flex justify-between text-xs font-display font-bold text-[#2C2824]">
-                <span>Journey to Next 28 Mei</span>
+                <span>Journey to 1 Year Anniversary</span>
                 <span>{Math.floor(stats.nextAnniv.progressPercent)}% complete</span>
               </div>
               <div className="w-full h-4 bg-[#FFFDF9] border-2 border-[#2C2824] rounded-full overflow-hidden p-0.5 shadow-inner">
@@ -314,7 +298,7 @@ export default function JourneyPage() {
                   <span>Our Love Milestones</span>
                 </h2>
                 <p className="font-hand text-lg text-[#7A7269]">
-                  badges unlocked across our journey since 28 Mei ♡
+                  badges unlocked across our journey since 28 Mei 2026 ♡
                 </p>
               </div>
             </div>
