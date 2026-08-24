@@ -13,8 +13,6 @@ import {
   setCachedSongs,
   parseSongRow,
   encodeSongUrl,
-  isStaleTestTitle,
-  INITIAL_REAL_SONGS,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import {
@@ -103,7 +101,7 @@ function MusicLetterCard({
       {/* Bottom Row: Spotify Song Banner */}
       <div className="p-3.5 bg-[#F3F4F6] border-t-2 border-[#2C2824]/10 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          {/* High-Res Album Cover Art */}
+          {/* Real High-Res Album Cover Art */}
           <img
             src={coverUrl}
             alt={song.title}
@@ -150,7 +148,7 @@ export default function MusicPage() {
   const { showToast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
-  const [songs, setSongs] = useState<CustomSongItem[]>(getCachedSongs());
+  const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -168,6 +166,12 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
+  // 1. Initial Load: Read LocalStorage immediately
+  useEffect(() => {
+    const cached = getCachedSongs();
+    setSongs(cached);
+  }, []);
+
   // Fetch all songs from Cloud Supabase Database
   const fetchCloudSongs = useCallback(async () => {
     try {
@@ -181,27 +185,17 @@ export default function MusicPage() {
         return;
       }
 
-      if (dbSongs) {
-        // Filter out all stale test songs
-        const real = dbSongs.filter((s) => !isStaleTestTitle(s.title));
+      if (dbSongs && dbSongs.length > 0) {
+        // Filter out any default dummy rows
+        const real = dbSongs.filter((s) => {
+          const t = s.title?.trim().toLowerCase();
+          return t !== "apocalypse" && t !== "seasons" && t !== "double take" && t !== "lover";
+        });
 
         if (real.length > 0) {
-          // Deduplicate by title
-          const map = new Map<string, CustomSongItem>();
-          real.forEach((raw) => {
-            const parsed = parseSongRow(raw);
-            const key = parsed.title.toLowerCase();
-            if (!map.has(key)) {
-              map.set(key, parsed);
-            }
-          });
-          const list = Array.from(map.values());
-          setSongs(list);
-          setCachedSongs(list);
-        } else {
-          // Fallback to our 4 real songs
-          setSongs(INITIAL_REAL_SONGS);
-          setCachedSongs(INITIAL_REAL_SONGS);
+          const parsed = real.map(parseSongRow);
+          setSongs(parsed);
+          setCachedSongs(parsed);
         }
       }
     } catch (err) {
@@ -209,12 +203,11 @@ export default function MusicPage() {
     }
   }, [supabase]);
 
-  // Initial Load & Realtime Subscription
   useEffect(() => {
     fetchCloudSongs();
 
     const channel = supabase
-      .channel("realtime-songs-channel-v2")
+      .channel("realtime-songs-clean-channel")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "songs" },
@@ -324,37 +317,35 @@ export default function MusicPage() {
         ? "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe"
         : "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832");
 
-    const payload = {
-      title: selectedTrack.trackName,
-      artist: selectedTrack.artistName,
-      url: safeUrl,
-      reason: formReason.trim(),
-      added_by: fallbackUserId,
-    };
-
-    // 1. Insert to Supabase (Cloud Database)
-    try {
-      await supabase.from("songs").insert(payload);
-    } catch (e) {
-      console.error(e);
-    }
-
-    // 2. Optimistically update state and cache
     const newSong: CustomSongItem = {
       id: "song_" + Date.now(),
       title: selectedTrack.trackName,
       artist: selectedTrack.artistName,
       url: selectedTrack.spotifyUrl,
-      album_cover: selectedTrack.artworkUrl,
+      album_cover: selectedTrack.artworkUrl, // EXACT REAL COVER FROM SEARCH
       reason: formReason.trim(),
       sender_name: formSender,
       added_by: fallbackUserId,
       created_at: new Date().toISOString(),
     };
 
-    const updated = [newSong, ...songs.filter((s) => s.title.toLowerCase() !== newSong.title.toLowerCase())];
+    // 1. Immediately persist to state & LocalStorage
+    const updated = [newSong, ...songs];
     setSongs(updated);
     setCachedSongs(updated);
+
+    // 2. Insert to Supabase Cloud
+    try {
+      await supabase.from("songs").insert({
+        title: newSong.title,
+        artist: newSong.artist,
+        url: safeUrl,
+        reason: newSong.reason,
+        added_by: fallbackUserId,
+      });
+    } catch (e) {
+      console.error("Supabase insert error:", e);
+    }
 
     showToast(`Music letter sent From: ${formSender === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
       emoji: "🎵",
@@ -369,12 +360,14 @@ export default function MusicPage() {
 
   // Delete Song
   const handleDeleteSong = async (songToDelete: CustomSongItem) => {
+    // 1. Immediately remove from state and LocalStorage
     const updated = songs.filter((s) => s.id !== songToDelete.id && s.title !== songToDelete.title);
     setSongs(updated);
     setCachedSongs(updated);
 
+    // 2. Delete from Supabase
     try {
-      if (songToDelete.id) {
+      if (songToDelete.id && songToDelete.id.length > 20) {
         await supabase.from("songs").delete().eq("id", songToDelete.id);
       }
       if (songToDelete.title) {
@@ -523,7 +516,7 @@ export default function MusicPage() {
                             onFocus={() => {
                               if (searchResults.length > 0) setShowDropdown(true);
                             }}
-                            placeholder="Search and select your song (e.g. Always, Heaven, Kabar Bahagia, Panasea)"
+                            placeholder="Search and select your song (e.g. Hey Jude, Always, Heaven, Kabar Bahagia)"
                             className="w-full border-2 border-[#2C2824] rounded-xl px-4 py-2.5 pl-10 text-sm font-body bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824]"
                           />
                           <Search
@@ -611,7 +604,7 @@ export default function MusicPage() {
                       <textarea
                         value={formReason}
                         onChange={(e) => setFormReason(e.target.value)}
-                        placeholder="e.g. 'I LOVE YOUU EVERYDAY ♡'"
+                        placeholder="e.g. 'hey jane ♡'"
                         rows={3}
                         required
                         className="w-full border-2 border-[#2C2824] rounded-xl px-3.5 py-2.5 text-base font-hand bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824] resize-none"

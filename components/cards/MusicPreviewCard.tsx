@@ -8,18 +8,22 @@ import {
   getCachedSongs,
   setCachedSongs,
   parseSongRow,
-  isStaleTestTitle,
-  INITIAL_REAL_SONGS,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import { ArrowRight, Disc } from "lucide-react";
 
 export function MusicPreviewCard() {
   const supabase = useMemo(() => createClient(), []);
-  const [songs, setSongs] = useState<CustomSongItem[]>(getCachedSongs());
+  const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Fetch all songs from Supabase Cloud DB
+  // Initial read from LocalStorage
+  useEffect(() => {
+    const cached = getCachedSongs();
+    setSongs(cached);
+  }, []);
+
+  // Fetch from Supabase
   const fetchCloudSongs = useCallback(async () => {
     try {
       const { data: dbSongs } = await supabase
@@ -27,25 +31,16 @@ export function MusicPreviewCard() {
         .select("*")
         .order("created_at", { ascending: false });
 
-      if (dbSongs) {
-        // Filter out stale test songs
-        const real = dbSongs.filter((s) => !isStaleTestTitle(s.title));
+      if (dbSongs && dbSongs.length > 0) {
+        const real = dbSongs.filter((s) => {
+          const t = s.title?.trim().toLowerCase();
+          return t !== "apocalypse" && t !== "seasons" && t !== "double take" && t !== "lover";
+        });
 
         if (real.length > 0) {
-          const map = new Map<string, CustomSongItem>();
-          real.forEach((raw) => {
-            const parsed = parseSongRow(raw);
-            const key = parsed.title.toLowerCase();
-            if (!map.has(key)) {
-              map.set(key, parsed);
-            }
-          });
-          const list = Array.from(map.values());
-          setSongs(list);
-          setCachedSongs(list);
-        } else {
-          setSongs(INITIAL_REAL_SONGS);
-          setCachedSongs(INITIAL_REAL_SONGS);
+          const parsed = real.map(parseSongRow);
+          setSongs(parsed);
+          setCachedSongs(parsed);
         }
       }
     } catch (err) {
@@ -53,12 +48,11 @@ export function MusicPreviewCard() {
     }
   }, [supabase]);
 
-  // Initial load & Realtime cross-device subscription
   useEffect(() => {
     fetchCloudSongs();
 
     const channel = supabase
-      .channel("realtime-bento-music-channel-v2")
+      .channel("realtime-bento-music-clean")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "songs" },
