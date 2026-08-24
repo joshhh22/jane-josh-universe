@@ -10,6 +10,7 @@ import confetti from "canvas-confetti";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", emoji: "🏠" },
+  { href: "/journey", label: "28 Mei", emoji: "⏳" },
   { href: "/room", label: "Our Room", emoji: "🛋️" },
   { href: "/letters", label: "Letters", emoji: "💌" },
   { href: "/music", label: "Music", emoji: "🎧" },
@@ -100,26 +101,29 @@ export function NavBar() {
           })}
         </nav>
 
-        {/* User Auth / Action */}
+        {/* User Status / Login Button */}
         <div className="flex items-center gap-2">
-          {user && profile ? (
+          {isAdmin ? (
             <div className="flex items-center gap-2">
-              <div className="hidden sm:flex items-center gap-2 bg-[#BBF7D0] border-2 border-[#2C2824] px-3 py-1 rounded-xl shadow-[2px_2px_0px_#2C2824]">
-                <span className="text-base">{profile.avatar_emoji || "👤"}</span>
-                <span className="font-display font-bold text-xs">{profile.display_name}</span>
+              <div className="hidden sm:flex items-center gap-1.5 bg-[#BBF7D0] border-2 border-[#2C2824] px-3 py-1 rounded-xl shadow-[2px_2px_0px_#2C2824] text-xs font-display font-bold text-[#2C2824]">
+                <span>{profile?.avatar_url || "💻"}</span>
+                <span className="capitalize">{profile?.username || "Josh"}</span>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               </div>
               <button
                 onClick={() => signOut()}
-                className="neu-btn neu-btn-white text-xs py-1.5 px-3"
-                title="Sign out"
+                className="neu-btn neu-btn-white text-xs py-1.5 px-3 flex items-center gap-1 shadow-[2px_2px_0px_#2C2824]"
+                title="Sign out of universe"
               >
                 <LogOut size={13} />
                 <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
           ) : (
-            <Link href="/login" className="neu-btn neu-btn-pink text-xs py-1.5 px-3.5">
+            <Link
+              href="/login"
+              className="neu-btn neu-btn-pink text-xs py-1.5 px-3.5 flex items-center gap-1.5 shadow-[2px_2px_0px_#2C2824]"
+            >
               <LogIn size={13} />
               <span>Sign in</span>
             </Link>
@@ -128,8 +132,8 @@ export function NavBar() {
           {/* Mobile Menu Button */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="lg:hidden p-2 rounded-xl bg-[#FFFDF9] border-2 border-[#2C2824] shadow-[2px_2px_0px_#2C2824] text-[#2C2824]"
-            aria-label="Toggle navigation menu"
+            className="lg:hidden p-2 rounded-xl border-2 border-[#2C2824] bg-[#FFFDF9] shadow-[2px_2px_0px_#2C2824] text-[#2C2824]"
+            aria-label="Toggle Menu"
           >
             {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
@@ -143,9 +147,9 @@ export function NavBar() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="lg:hidden overflow-hidden pt-3 mt-2 border-t-2 border-[#2C2824]/20"
+            className="lg:hidden mt-3 pt-3 border-t-2 border-[#2C2824]/15 overflow-hidden"
           >
-            <div className="grid grid-cols-3 gap-2 pb-2">
+            <div className="grid grid-cols-2 gap-2 pb-2">
               {NAV_ITEMS.map((item) => {
                 const active = pathname === item.href;
                 return (
@@ -153,11 +157,13 @@ export function NavBar() {
                     key={item.href}
                     href={item.href}
                     onClick={() => setMobileMenuOpen(false)}
-                    className={`p-2.5 rounded-xl border-2 border-[#2C2824] font-display font-bold text-xs flex flex-col items-center justify-center text-center gap-1 shadow-[2px_2px_0px_#2C2824] ${
-                      active ? "bg-[#FFCCD5]" : "bg-[#FFFDF9]"
+                    className={`p-2.5 rounded-xl border-2 font-display font-bold text-xs flex items-center gap-2 transition-all ${
+                      active
+                        ? "bg-[#FFCCD5] border-[#2C2824] shadow-[2px_2px_0px_#2C2824] text-[#2C2824]"
+                        : "bg-[#FFFDF9] border-[#2C2824]/30 text-[#7A7269]"
                     }`}
                   >
-                    <span className="text-xl">{item.emoji}</span>
+                    <span className="text-base">{item.emoji}</span>
                     <span>{item.label}</span>
                   </Link>
                 );

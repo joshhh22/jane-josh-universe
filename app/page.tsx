@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { NavBar } from "@/components/layout/NavBar";
 import { RoomPreviewCard } from "@/components/cards/RoomPreviewCard";
 import { JaneLorePreviewCard } from "@/components/cards/JaneLorePreviewCard";
+import { AnniversaryPreviewCard } from "@/components/cards/AnniversaryPreviewCard";
 import { MoodWidget } from "@/components/cards/MoodWidget";
 import { LetterCountCard } from "@/components/cards/LetterCountCard";
 import { MusicPreviewCard } from "@/components/cards/MusicPreviewCard";
@@ -72,21 +73,31 @@ export default function Home() {
               <JaneLorePreviewCard />
             </motion.div>
 
-            {/* ROW 2: 3 Equal-Width Cards (4 cols each) */}
+            {/* ROW 2: 28 Mei Live Love Counter (6 cols) + Mood Widget (6 cols) */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.15 }}
-              className="md:col-span-4 min-h-[220px]"
+              className="md:col-span-6 min-h-[220px]"
             >
-              <MoodWidget />
+              <AnniversaryPreviewCard />
             </motion.div>
 
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="md:col-span-4 min-h-[220px]"
+              className="md:col-span-6 min-h-[220px]"
+            >
+              <MoodWidget />
+            </motion.div>
+
+            {/* ROW 3: 3 Metric Cards (4 cols each) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25 }}
+              className="md:col-span-4 min-h-[200px]"
             >
               <LetterCountCard />
             </motion.div>
@@ -94,17 +105,26 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.25 }}
-              className="md:col-span-4 min-h-[220px]"
+              transition={{ delay: 0.3 }}
+              className="md:col-span-4 min-h-[200px]"
             >
               <SurpriseCountCard />
             </motion.div>
 
-            {/* ROW 3: Soundtrack (6 cols) + Memory Archive (6 cols) */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
+              transition={{ delay: 0.35 }}
+              className="md:col-span-4 min-h-[200px]"
+            >
+              <DailyQuestionCard />
+            </motion.div>
+
+            {/* ROW 4: Soundtrack (6 cols) + Memory Archive (6 cols) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
               className="md:col-span-6 min-h-[240px]"
             >
               <MusicPreviewCard />
@@ -113,17 +133,17 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.35 }}
+              transition={{ delay: 0.45 }}
               className="md:col-span-6 min-h-[240px]"
             >
               <MemoryPreviewCard />
             </motion.div>
 
-            {/* ROW 4: Pet Widget (6 cols) + Daily Question (6 cols) */}
+            {/* ROW 5: Pet Widget (6 cols) + Stats Card (6 cols) */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4 }}
+              transition={{ delay: 0.5 }}
               className="md:col-span-6 min-h-[240px]"
             >
               <PetWidget />
@@ -132,18 +152,8 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.45 }}
+              transition={{ delay: 0.55 }}
               className="md:col-span-6 min-h-[240px]"
-            >
-              <DailyQuestionCard />
-            </motion.div>
-
-            {/* ROW 5: Stats Card (12 cols) */}
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-              className="md:col-span-12"
             >
               <StatsCard />
             </motion.div>
