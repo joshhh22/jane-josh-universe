@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { createClient } from "@/lib/supabase/client";
 import {
   getCachedSongs,
   setCachedSongs,
@@ -15,21 +14,18 @@ import {
 import { ArrowRight, Disc } from "lucide-react";
 
 export function MusicPreviewCard() {
-  const supabase = useMemo(() => createClient(), []);
   const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Fetch all songs from Supabase Cloud DB
+  // Fetch all songs from API
   const fetchCloudSongs = useCallback(async () => {
     try {
       const deletedKeys = getDeletedKeys();
-      const { data: dbSongs } = await supabase
-        .from("songs")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const res = await fetch("/api/songs");
+      const data = await res.json();
 
-      if (dbSongs && dbSongs.length > 0) {
-        const real = dbSongs.filter((s) => {
+      if (data.songs && Array.isArray(data.songs)) {
+        const real = data.songs.filter((s: any) => {
           const t = s.title?.trim().toLowerCase();
           const isDeleted =
             (s.id && deletedKeys.includes(s.id.toLowerCase())) ||
@@ -47,7 +43,7 @@ export function MusicPreviewCard() {
               map.set(k, c);
             }
           });
-          parsed.forEach((p) => {
+          parsed.forEach((p: CustomSongItem) => {
             const k = p.title?.trim().toLowerCase();
             if (k && !map.has(k)) {
               map.set(k, p);
@@ -61,7 +57,7 @@ export function MusicPreviewCard() {
     } catch (err) {
       console.error(err);
     }
-  }, [supabase]);
+  }, []);
 
   // Initial load
   useEffect(() => {

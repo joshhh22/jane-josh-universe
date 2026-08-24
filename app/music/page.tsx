@@ -5,7 +5,6 @@ export const dynamic = "force-dynamic";
 import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { NavBar } from "@/components/layout/NavBar";
-import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
@@ -150,7 +149,6 @@ function MusicLetterCard({
 export default function MusicPage() {
   const { user, profile, isAdmin, isJane, isJosh } = useAuth();
   const { showToast } = useToast();
-  const supabase = useMemo(() => createClient(), []);
 
   const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
@@ -170,23 +168,15 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch all songs from Cloud Supabase Database
+  // Fetch songs from API
   const fetchCloudSongs = useCallback(async () => {
     try {
       const deletedKeys = getDeletedKeys();
-      const { data: dbSongs, error } = await supabase
-        .from("songs")
-        .select("*")
-        .order("created_at", { ascending: false });
+      const res = await fetch("/api/songs");
+      const data = await res.json();
 
-      if (error) {
-        console.error("Supabase fetch error:", error);
-        return;
-      }
-
-      if (dbSongs && dbSongs.length > 0) {
-        // Filter out stale test titles AND deleted keys
-        const real = dbSongs.filter((s) => {
+      if (data.songs && Array.isArray(data.songs)) {
+        const real = data.songs.filter((s: any) => {
           const t = s.title?.trim().toLowerCase();
           const isDeleted =
             (s.id && deletedKeys.includes(s.id.toLowerCase())) ||
@@ -198,15 +188,13 @@ export default function MusicPage() {
         const parsed = real.map(parseSongRow);
         setSongs((current) => {
           const map = new Map<string, CustomSongItem>();
-          // Keep local
           current.forEach((c) => {
             const k = c.title?.trim().toLowerCase();
             if (k && !deletedKeys.includes(k) && !isStaleLegacyTitle(c.title)) {
               map.set(k, c);
             }
           });
-          // Merge DB
-          parsed.forEach((p) => {
+          parsed.forEach((p: CustomSongItem) => {
             const k = p.title?.trim().toLowerCase();
             if (k && !map.has(k)) {
               map.set(k, p);
@@ -220,9 +208,9 @@ export default function MusicPage() {
     } catch (err) {
       console.error(err);
     }
-  }, [supabase]);
+  }, []);
 
-  // Initial Load: Read LocalStorage immediately
+  // Initial Load: Read LocalStorage immediately, then fetch API
   useEffect(() => {
     const cached = getCachedSongs();
     setSongs(cached);
@@ -327,6 +315,15 @@ export default function MusicPage() {
         ? "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe"
         : "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832");
 
+    const payload = {
+      title: selectedTrack.trackName,
+      artist: selectedTrack.artistName,
+      url: safeUrl,
+      reason: formReason.trim(),
+      added_by: fallbackUserId,
+    };
+
+    // 1. Optimistic client update
     const newSong: CustomSongItem = {
       id: "song_" + Date.now(),
       title: selectedTrack.trackName,
@@ -339,22 +336,19 @@ export default function MusicPage() {
       created_at: new Date().toISOString(),
     };
 
-    // 1. Immediately persist to state & LocalStorage
     const updated = [newSong, ...songs.filter((s) => s.title.toLowerCase() !== newSong.title.toLowerCase())];
     setSongs(updated);
     setCachedSongs(updated);
 
-    // 2. Insert to Supabase Cloud
+    // 2. Post to API
     try {
-      await supabase.from("songs").insert({
-        title: newSong.title,
-        artist: newSong.artist,
-        url: safeUrl,
-        reason: newSong.reason,
-        added_by: fallbackUserId,
+      await fetch("/api/songs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       });
     } catch (e) {
-      console.error("Supabase insert error:", e);
+      console.error("API post error:", e);
     }
 
     showToast(`Music letter sent From: ${formSender === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
@@ -370,7 +364,7 @@ export default function MusicPage() {
 
   // Delete Song
   const handleDeleteSong = async (songToDelete: CustomSongItem) => {
-    // 1. Add to tombstone so it NEVER returns from Supabase
+    // 1. Add to tombstone so it NEVER returns
     addDeletedKey([songToDelete.id, songToDelete.title]);
 
     // 2. Immediately remove from state and LocalStorage
@@ -378,16 +372,15 @@ export default function MusicPage() {
     setSongs(updated);
     setCachedSongs(updated);
 
-    // 3. Delete from Supabase
+    // 3. Delete from API
     try {
-      if (songToDelete.id && songToDelete.id.length > 20) {
-        await supabase.from("songs").delete().eq("id", songToDelete.id);
-      }
-      if (songToDelete.title) {
-        await supabase.from("songs").delete().ilike("title", songToDelete.title);
-      }
+      await fetch("/api/songs", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: songToDelete.id, title: songToDelete.title }),
+      });
     } catch (err) {
-      console.error("Supabase delete error:", err);
+      console.error("API delete error:", err);
     }
 
     showToast("Song letter removed 🗑️", { emoji: "🗑️" });
