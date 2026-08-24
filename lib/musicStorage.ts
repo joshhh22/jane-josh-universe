@@ -1,11 +1,56 @@
 import type { Song } from "@/lib/supabase/types";
 
-export const STORAGE_SONGS_KEY = "jane_josh_songs_v11_clean_storage";
+export const STORAGE_SONGS_KEY = "jane_josh_songs_v12_perfect";
+export const STORAGE_DELETED_KEY = "jane_josh_deleted_keys_v12";
 
 export type CustomSongItem = Song & {
   album_cover?: string | null;
   sender_name?: string | null;
 };
+
+// Check if a song is from old test seed
+export function isStaleLegacyTitle(title?: string | null): boolean {
+  if (!title) return true;
+  const t = title.trim().toLowerCase();
+  return (
+    t === "apocalypse" ||
+    t === "seasons" ||
+    t === "double take" ||
+    t === "lover" ||
+    t === "every way" ||
+    t === "best part"
+  );
+}
+
+// Deleted Tombstone Management
+export function getDeletedKeys(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addDeletedKey(keys: (string | null | undefined)[]) {
+  if (typeof window === "undefined") return;
+  const current = getDeletedKeys();
+  keys.forEach((k) => {
+    const clean = k?.trim().toLowerCase();
+    if (clean && !current.includes(clean)) {
+      current.push(clean);
+    }
+  });
+  localStorage.setItem(STORAGE_DELETED_KEY, JSON.stringify(current));
+}
+
+export function removeDeletedKey(key: string | null | undefined) {
+  if (typeof window === "undefined" || !key) return;
+  const clean = key.trim().toLowerCase();
+  const current = getDeletedKeys().filter((k) => k !== clean);
+  localStorage.setItem(STORAGE_DELETED_KEY, JSON.stringify(current));
+}
 
 // Safe URL encoder to preserve real high-res album cover & sender in cloud
 export function encodeSongUrl(spotifyUrl: string, artworkUrl?: string | null, sender?: string | null): string {
@@ -50,10 +95,19 @@ export function parseSongRow(rawSong: any): CustomSongItem {
 export const getCachedSongs = (): CustomSongItem[] => {
   if (typeof window === "undefined") return [];
   try {
+    const deleted = getDeletedKeys();
     const raw = localStorage.getItem(STORAGE_SONGS_KEY);
     if (raw === null) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const parsed: CustomSongItem[] = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((s) => {
+      const titleLower = s.title?.trim().toLowerCase();
+      const isDeleted =
+        (s.id && deleted.includes(s.id.toLowerCase())) ||
+        (titleLower && deleted.includes(titleLower)) ||
+        isStaleLegacyTitle(s.title);
+      return !isDeleted;
+    });
   } catch {
     return [];
   }
@@ -61,5 +115,14 @@ export const getCachedSongs = (): CustomSongItem[] => {
 
 export const setCachedSongs = (songs: CustomSongItem[]) => {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(songs));
+  const deleted = getDeletedKeys();
+  const valid = songs.filter((s) => {
+    const titleLower = s.title?.trim().toLowerCase();
+    const isDeleted =
+      (s.id && deleted.includes(s.id.toLowerCase())) ||
+      (titleLower && deleted.includes(titleLower)) ||
+      isStaleLegacyTitle(s.title);
+    return !isDeleted;
+  });
+  localStorage.setItem(STORAGE_SONGS_KEY, JSON.stringify(valid));
 };

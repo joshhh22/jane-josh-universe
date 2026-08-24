@@ -11,8 +11,12 @@ import { useToast } from "@/components/providers/ToastProvider";
 import {
   getCachedSongs,
   setCachedSongs,
+  getDeletedKeys,
+  addDeletedKey,
+  removeDeletedKey,
   parseSongRow,
   encodeSongUrl,
+  isStaleLegacyTitle,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import {
@@ -166,15 +170,10 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // 1. Initial Load: Read LocalStorage immediately
-  useEffect(() => {
-    const cached = getCachedSongs();
-    setSongs(cached);
-  }, []);
-
   // Fetch all songs from Cloud Supabase Database
   const fetchCloudSongs = useCallback(async () => {
     try {
+      const deletedKeys = getDeletedKeys();
       const { data: dbSongs, error } = await supabase
         .from("songs")
         .select("*")
@@ -186,41 +185,49 @@ export default function MusicPage() {
       }
 
       if (dbSongs && dbSongs.length > 0) {
-        // Filter out any default dummy rows
+        // Filter out stale test titles AND deleted keys
         const real = dbSongs.filter((s) => {
           const t = s.title?.trim().toLowerCase();
-          return t !== "apocalypse" && t !== "seasons" && t !== "double take" && t !== "lover";
+          const isDeleted =
+            (s.id && deletedKeys.includes(s.id.toLowerCase())) ||
+            (t && deletedKeys.includes(t)) ||
+            isStaleLegacyTitle(s.title);
+          return !isDeleted;
         });
 
-        if (real.length > 0) {
-          const parsed = real.map(parseSongRow);
-          setSongs(parsed);
-          setCachedSongs(parsed);
-        }
+        const parsed = real.map(parseSongRow);
+        setSongs((current) => {
+          const map = new Map<string, CustomSongItem>();
+          // Keep local
+          current.forEach((c) => {
+            const k = c.title?.trim().toLowerCase();
+            if (k && !deletedKeys.includes(k) && !isStaleLegacyTitle(c.title)) {
+              map.set(k, c);
+            }
+          });
+          // Merge DB
+          parsed.forEach((p) => {
+            const k = p.title?.trim().toLowerCase();
+            if (k && !map.has(k)) {
+              map.set(k, p);
+            }
+          });
+          const merged = Array.from(map.values());
+          setCachedSongs(merged);
+          return merged;
+        });
       }
     } catch (err) {
       console.error(err);
     }
   }, [supabase]);
 
+  // Initial Load: Read LocalStorage immediately
   useEffect(() => {
+    const cached = getCachedSongs();
+    setSongs(cached);
     fetchCloudSongs();
-
-    const channel = supabase
-      .channel("realtime-songs-clean-channel")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "songs" },
-        () => {
-          fetchCloudSongs();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [supabase, fetchCloudSongs]);
+  }, [fetchCloudSongs]);
 
   // Auto-set sender based on logged in user
   useEffect(() => {
@@ -309,6 +316,9 @@ export default function MusicPage() {
 
     setAdding(true);
 
+    // Unblock this title in case it was previously in tombstone
+    removeDeletedKey(selectedTrack.trackName);
+
     const safeUrl = encodeSongUrl(selectedTrack.spotifyUrl, selectedTrack.artworkUrl, formSender);
     const fallbackUserId =
       user?.id ||
@@ -322,7 +332,7 @@ export default function MusicPage() {
       title: selectedTrack.trackName,
       artist: selectedTrack.artistName,
       url: selectedTrack.spotifyUrl,
-      album_cover: selectedTrack.artworkUrl, // EXACT REAL COVER FROM SEARCH
+      album_cover: selectedTrack.artworkUrl, // EXACT REAL HD COVER
       reason: formReason.trim(),
       sender_name: formSender,
       added_by: fallbackUserId,
@@ -330,7 +340,7 @@ export default function MusicPage() {
     };
 
     // 1. Immediately persist to state & LocalStorage
-    const updated = [newSong, ...songs];
+    const updated = [newSong, ...songs.filter((s) => s.title.toLowerCase() !== newSong.title.toLowerCase())];
     setSongs(updated);
     setCachedSongs(updated);
 
@@ -360,12 +370,15 @@ export default function MusicPage() {
 
   // Delete Song
   const handleDeleteSong = async (songToDelete: CustomSongItem) => {
-    // 1. Immediately remove from state and LocalStorage
+    // 1. Add to tombstone so it NEVER returns from Supabase
+    addDeletedKey([songToDelete.id, songToDelete.title]);
+
+    // 2. Immediately remove from state and LocalStorage
     const updated = songs.filter((s) => s.id !== songToDelete.id && s.title !== songToDelete.title);
     setSongs(updated);
     setCachedSongs(updated);
 
-    // 2. Delete from Supabase
+    // 3. Delete from Supabase
     try {
       if (songToDelete.id && songToDelete.id.length > 20) {
         await supabase.from("songs").delete().eq("id", songToDelete.id);

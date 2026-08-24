@@ -7,7 +7,9 @@ import { createClient } from "@/lib/supabase/client";
 import {
   getCachedSongs,
   setCachedSongs,
+  getDeletedKeys,
   parseSongRow,
+  isStaleLegacyTitle,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import { ArrowRight, Disc } from "lucide-react";
@@ -17,15 +19,10 @@ export function MusicPreviewCard() {
   const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Initial read from LocalStorage
-  useEffect(() => {
-    const cached = getCachedSongs();
-    setSongs(cached);
-  }, []);
-
-  // Fetch from Supabase
+  // Fetch all songs from Supabase Cloud DB
   const fetchCloudSongs = useCallback(async () => {
     try {
+      const deletedKeys = getDeletedKeys();
       const { data: dbSongs } = await supabase
         .from("songs")
         .select("*")
@@ -34,38 +31,44 @@ export function MusicPreviewCard() {
       if (dbSongs && dbSongs.length > 0) {
         const real = dbSongs.filter((s) => {
           const t = s.title?.trim().toLowerCase();
-          return t !== "apocalypse" && t !== "seasons" && t !== "double take" && t !== "lover";
+          const isDeleted =
+            (s.id && deletedKeys.includes(s.id.toLowerCase())) ||
+            (t && deletedKeys.includes(t)) ||
+            isStaleLegacyTitle(s.title);
+          return !isDeleted;
         });
 
-        if (real.length > 0) {
-          const parsed = real.map(parseSongRow);
-          setSongs(parsed);
-          setCachedSongs(parsed);
-        }
+        const parsed = real.map(parseSongRow);
+        setSongs((current) => {
+          const map = new Map<string, CustomSongItem>();
+          current.forEach((c) => {
+            const k = c.title?.trim().toLowerCase();
+            if (k && !deletedKeys.includes(k) && !isStaleLegacyTitle(c.title)) {
+              map.set(k, c);
+            }
+          });
+          parsed.forEach((p) => {
+            const k = p.title?.trim().toLowerCase();
+            if (k && !map.has(k)) {
+              map.set(k, p);
+            }
+          });
+          const merged = Array.from(map.values());
+          setCachedSongs(merged);
+          return merged;
+        });
       }
     } catch (err) {
       console.error(err);
     }
   }, [supabase]);
 
+  // Initial load
   useEffect(() => {
+    const cached = getCachedSongs();
+    setSongs(cached);
     fetchCloudSongs();
-
-    const channel = supabase
-      .channel("realtime-bento-music-clean")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "songs" },
-        () => {
-          fetchCloudSongs();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [supabase, fetchCloudSongs]);
+  }, [fetchCloudSongs]);
 
   // Auto-cycle songs every 4 seconds with smooth fade-in
   useEffect(() => {
