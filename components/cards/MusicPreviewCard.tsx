@@ -4,11 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  getCachedSongs,
-  setCachedSongs,
-  getDeletedKeys,
   parseSongRow,
-  isStaleLegacyTitle,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import { ArrowRight, Disc } from "lucide-react";
@@ -17,42 +13,14 @@ export function MusicPreviewCard() {
   const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Fetch all songs from API
+  // Fetch all songs directly from server API
   const fetchCloudSongs = useCallback(async () => {
     try {
-      const deletedKeys = getDeletedKeys();
-      const res = await fetch("/api/songs");
+      const res = await fetch("/api/songs", { cache: "no-store" });
       const data = await res.json();
-
       if (data.songs && Array.isArray(data.songs)) {
-        const real = data.songs.filter((s: any) => {
-          const t = s.title?.trim().toLowerCase();
-          const isDeleted =
-            (s.id && deletedKeys.includes(s.id.toLowerCase())) ||
-            (t && deletedKeys.includes(t)) ||
-            isStaleLegacyTitle(s.title);
-          return !isDeleted;
-        });
-
-        const parsed = real.map(parseSongRow);
-        setSongs((current) => {
-          const map = new Map<string, CustomSongItem>();
-          current.forEach((c) => {
-            const k = c.title?.trim().toLowerCase();
-            if (k && !deletedKeys.includes(k) && !isStaleLegacyTitle(c.title)) {
-              map.set(k, c);
-            }
-          });
-          parsed.forEach((p: CustomSongItem) => {
-            const k = p.title?.trim().toLowerCase();
-            if (k && !map.has(k)) {
-              map.set(k, p);
-            }
-          });
-          const merged = Array.from(map.values());
-          setCachedSongs(merged);
-          return merged;
-        });
+        const parsed = data.songs.map(parseSongRow);
+        setSongs(parsed);
       }
     } catch (err) {
       console.error(err);
@@ -61,8 +29,6 @@ export function MusicPreviewCard() {
 
   // Initial load
   useEffect(() => {
-    const cached = getCachedSongs();
-    setSongs(cached);
     fetchCloudSongs();
   }, [fetchCloudSongs]);
 

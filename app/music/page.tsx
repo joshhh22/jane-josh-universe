@@ -8,14 +8,9 @@ import { NavBar } from "@/components/layout/NavBar";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
 import {
-  getCachedSongs,
-  setCachedSongs,
-  getDeletedKeys,
-  addDeletedKey,
-  removeDeletedKey,
   parseSongRow,
   encodeSongUrl,
-  isStaleLegacyTitle,
+  clearAllLegacyStorage,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import {
@@ -168,52 +163,23 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch songs from API
+  // Fetch all songs directly from server API
   const fetchCloudSongs = useCallback(async () => {
     try {
-      const deletedKeys = getDeletedKeys();
-      const res = await fetch("/api/songs");
+      const res = await fetch("/api/songs", { cache: "no-store" });
       const data = await res.json();
-
       if (data.songs && Array.isArray(data.songs)) {
-        const real = data.songs.filter((s: any) => {
-          const t = s.title?.trim().toLowerCase();
-          const isDeleted =
-            (s.id && deletedKeys.includes(s.id.toLowerCase())) ||
-            (t && deletedKeys.includes(t)) ||
-            isStaleLegacyTitle(s.title);
-          return !isDeleted;
-        });
-
-        const parsed = real.map(parseSongRow);
-        setSongs((current) => {
-          const map = new Map<string, CustomSongItem>();
-          current.forEach((c) => {
-            const k = c.title?.trim().toLowerCase();
-            if (k && !deletedKeys.includes(k) && !isStaleLegacyTitle(c.title)) {
-              map.set(k, c);
-            }
-          });
-          parsed.forEach((p: CustomSongItem) => {
-            const k = p.title?.trim().toLowerCase();
-            if (k && !map.has(k)) {
-              map.set(k, p);
-            }
-          });
-          const merged = Array.from(map.values());
-          setCachedSongs(merged);
-          return merged;
-        });
+        const parsed = data.songs.map(parseSongRow);
+        setSongs(parsed);
       }
     } catch (err) {
       console.error(err);
     }
   }, []);
 
-  // Initial Load: Read LocalStorage immediately, then fetch API
+  // Initial Load: clear any old isolated storage and fetch directly from server API
   useEffect(() => {
-    const cached = getCachedSongs();
-    setSongs(cached);
+    clearAllLegacyStorage();
     fetchCloudSongs();
   }, [fetchCloudSongs]);
 
@@ -304,9 +270,6 @@ export default function MusicPage() {
 
     setAdding(true);
 
-    // Unblock this title in case it was previously in tombstone
-    removeDeletedKey(selectedTrack.trackName);
-
     const safeUrl = encodeSongUrl(selectedTrack.spotifyUrl, selectedTrack.artworkUrl, formSender);
     const fallbackUserId =
       user?.id ||
@@ -323,30 +286,14 @@ export default function MusicPage() {
       added_by: fallbackUserId,
     };
 
-    // 1. Optimistic client update
-    const newSong: CustomSongItem = {
-      id: "song_" + Date.now(),
-      title: selectedTrack.trackName,
-      artist: selectedTrack.artistName,
-      url: selectedTrack.spotifyUrl,
-      album_cover: selectedTrack.artworkUrl, // EXACT REAL HD COVER
-      reason: formReason.trim(),
-      sender_name: formSender,
-      added_by: fallbackUserId,
-      created_at: new Date().toISOString(),
-    };
-
-    const updated = [newSong, ...songs.filter((s) => s.title.toLowerCase() !== newSong.title.toLowerCase())];
-    setSongs(updated);
-    setCachedSongs(updated);
-
-    // 2. Post to API
+    // Post to API
     try {
       await fetch("/api/songs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      await fetchCloudSongs();
     } catch (e) {
       console.error("API post error:", e);
     }
@@ -364,21 +311,14 @@ export default function MusicPage() {
 
   // Delete Song
   const handleDeleteSong = async (songToDelete: CustomSongItem) => {
-    // 1. Add to tombstone so it NEVER returns
-    addDeletedKey([songToDelete.id, songToDelete.title]);
-
-    // 2. Immediately remove from state and LocalStorage
-    const updated = songs.filter((s) => s.id !== songToDelete.id && s.title !== songToDelete.title);
-    setSongs(updated);
-    setCachedSongs(updated);
-
-    // 3. Delete from API
+    // Delete from API
     try {
       await fetch("/api/songs", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: songToDelete.id, title: songToDelete.title }),
       });
+      await fetchCloudSongs();
     } catch (err) {
       console.error("API delete error:", err);
     }
@@ -522,7 +462,7 @@ export default function MusicPage() {
                             onFocus={() => {
                               if (searchResults.length > 0) setShowDropdown(true);
                             }}
-                            placeholder="Search and select your song (e.g. Hey Jude, Always, Heaven, Kabar Bahagia)"
+                            placeholder="Search and select your song (e.g. Heaven, Always, Kabar Bahagia, Panasea)"
                             className="w-full border-2 border-[#2C2824] rounded-xl px-4 py-2.5 pl-10 text-sm font-body bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824]"
                           />
                           <Search
@@ -610,7 +550,7 @@ export default function MusicPage() {
                       <textarea
                         value={formReason}
                         onChange={(e) => setFormReason(e.target.value)}
-                        placeholder="e.g. 'hey jane ♡'"
+                        placeholder="e.g. 'hahayy ♡'"
                         rows={3}
                         required
                         className="w-full border-2 border-[#2C2824] rounded-xl px-3.5 py-2.5 text-base font-hand bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824] resize-none"
