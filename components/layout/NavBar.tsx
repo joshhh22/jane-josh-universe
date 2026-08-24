@@ -5,12 +5,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/components/providers/AuthProvider";
-import { LogIn, LogOut, Menu, X, Sparkles, Heart } from "lucide-react";
+import { LogIn, LogOut, Menu, X, Heart } from "lucide-react";
 import confetti from "canvas-confetti";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", emoji: "🏠" },
-  { href: "/journey", label: "28 Mei", emoji: "⏳" },
+  { href: "/journey", label: "Journey", emoji: "⏳" },
   { href: "/room", label: "Our Room", emoji: "🛋️" },
   { href: "/letters", label: "Letters", emoji: "💌" },
   { href: "/music", label: "Music", emoji: "🎧" },

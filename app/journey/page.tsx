@@ -15,7 +15,6 @@ import {
 import {
   Heart,
   Sparkles,
-  Calendar,
   Clock,
   PartyPopper,
   Smile,
@@ -23,7 +22,6 @@ import {
 } from "lucide-react";
 
 export default function JourneyPage() {
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [now, setNow] = useState<Date>(new Date());
   const [activeReasonIndex, setActiveReasonIndex] = useState(0);
   const [isCelebrated, setIsCelebrated] = useState(false);
@@ -36,7 +34,8 @@ export default function JourneyPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const startDate = useMemo(() => getAnniversaryDate(selectedYear), [selectedYear]);
+  // Fixed strictly to 28 Mei 2026
+  const startDate = useMemo(() => getAnniversaryDate(2026), []);
   const stats = useMemo(() => calculateLoveStats(startDate, now), [startDate, now]);
 
   // Trigger Heart Confetti Blast
@@ -69,18 +68,18 @@ export default function JourneyPage() {
                 <span>Our Official Love Chronicle</span>
               </div>
               <h1 className="font-display font-black text-3xl sm:text-5xl text-[#2C2824] tracking-tight">
-                28 mei 2026 &bull; infinite love ⏳
+                our love journey ⏳
               </h1>
               <p className="font-hand text-xl sm:text-2xl text-[#7A7269] mt-1">
                 every second, minute, and day spent falling deeper in love with Jane ♡
               </p>
             </div>
 
-            {/* Anniversary Date Selector */}
-            <div className="flex items-center gap-2 bg-[#FFFDF9] p-2 rounded-2xl border-2 border-[#2C2824] shadow-[3px_3px_0px_#2C2824]">
-              <Calendar size={16} className="text-[#2C2824] ml-1" />
-              <span className="font-display font-bold text-xs text-[#7A7269]">Official Date:</span>
-              <div className="flex items-center gap-1">
+            {/* Static Badge: Pacaran Sejak 28 Mei 2026 */}
+            <div className="flex items-center gap-2 bg-[#FFFDF9] px-4 py-2 rounded-2xl border-2 border-[#2C2824] shadow-[3px_3px_0px_#2C2824]">
+              <Heart size={16} className="fill-rose-500 text-rose-500 animate-pulse flex-shrink-0" />
+              <div className="flex items-center gap-1.5">
+                <span className="font-display font-bold text-xs text-[#7A7269]">Pacaran Sejak:</span>
                 <span className="font-display font-black text-xs px-2.5 py-1 bg-[#FFCCD5] border border-[#2C2824] rounded-lg text-[#2C2824]">
                   28 Mei 2026 🌸
                 </span>
@@ -108,7 +107,7 @@ export default function JourneyPage() {
                   </span>
                 </div>
                 <div className="font-hand text-lg text-[#7A7269]">
-                  Official since 28 Mei 2026, 00:00:00 WIB
+                  Pacaran sejak 28 Mei 2026, 00:00:00 WIB
                 </div>
               </div>
 
