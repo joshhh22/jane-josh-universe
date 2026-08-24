@@ -8,13 +8,15 @@ import {
   getCachedSongs,
   setCachedSongs,
   parseSongRow,
+  isStaleTestTitle,
+  INITIAL_REAL_SONGS,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import { ArrowRight, Disc } from "lucide-react";
 
 export function MusicPreviewCard() {
   const supabase = useMemo(() => createClient(), []);
-  const [songs, setSongs] = useState<CustomSongItem[]>([]);
+  const [songs, setSongs] = useState<CustomSongItem[]>(getCachedSongs());
   const [currentIndex, setCurrentIndex] = useState(0);
 
   // Fetch all songs from Supabase Cloud DB
@@ -26,14 +28,25 @@ export function MusicPreviewCard() {
         .order("created_at", { ascending: false });
 
       if (dbSongs) {
-        const real = dbSongs.filter((s) => {
-          const t = s.title?.trim().toLowerCase();
-          return t !== "apocalypse" && t !== "seasons" && t !== "double take" && t !== "lover";
-        });
+        // Filter out stale test songs
+        const real = dbSongs.filter((s) => !isStaleTestTitle(s.title));
 
-        const parsed = real.map(parseSongRow);
-        setSongs(parsed);
-        setCachedSongs(parsed);
+        if (real.length > 0) {
+          const map = new Map<string, CustomSongItem>();
+          real.forEach((raw) => {
+            const parsed = parseSongRow(raw);
+            const key = parsed.title.toLowerCase();
+            if (!map.has(key)) {
+              map.set(key, parsed);
+            }
+          });
+          const list = Array.from(map.values());
+          setSongs(list);
+          setCachedSongs(list);
+        } else {
+          setSongs(INITIAL_REAL_SONGS);
+          setCachedSongs(INITIAL_REAL_SONGS);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -42,15 +55,10 @@ export function MusicPreviewCard() {
 
   // Initial load & Realtime cross-device subscription
   useEffect(() => {
-    const cached = getCachedSongs();
-    if (cached.length > 0) {
-      setSongs(cached);
-    }
-
     fetchCloudSongs();
 
     const channel = supabase
-      .channel("realtime-bento-music-channel")
+      .channel("realtime-bento-music-channel-v2")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "songs" },

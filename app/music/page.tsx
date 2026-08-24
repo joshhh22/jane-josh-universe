@@ -13,6 +13,8 @@ import {
   setCachedSongs,
   parseSongRow,
   encodeSongUrl,
+  isStaleTestTitle,
+  INITIAL_REAL_SONGS,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import {
@@ -148,7 +150,7 @@ export default function MusicPage() {
   const { showToast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
-  const [songs, setSongs] = useState<CustomSongItem[]>([]);
+  const [songs, setSongs] = useState<CustomSongItem[]>(getCachedSongs());
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
   const [showAdd, setShowAdd] = useState(false);
 
@@ -180,15 +182,27 @@ export default function MusicPage() {
       }
 
       if (dbSongs) {
-        // Filter out dummy template songs
-        const real = dbSongs.filter((s) => {
-          const t = s.title?.trim().toLowerCase();
-          return t !== "apocalypse" && t !== "seasons" && t !== "double take" && t !== "lover";
-        });
+        // Filter out all stale test songs
+        const real = dbSongs.filter((s) => !isStaleTestTitle(s.title));
 
-        const parsed = real.map(parseSongRow);
-        setSongs(parsed);
-        setCachedSongs(parsed);
+        if (real.length > 0) {
+          // Deduplicate by title
+          const map = new Map<string, CustomSongItem>();
+          real.forEach((raw) => {
+            const parsed = parseSongRow(raw);
+            const key = parsed.title.toLowerCase();
+            if (!map.has(key)) {
+              map.set(key, parsed);
+            }
+          });
+          const list = Array.from(map.values());
+          setSongs(list);
+          setCachedSongs(list);
+        } else {
+          // Fallback to our 4 real songs
+          setSongs(INITIAL_REAL_SONGS);
+          setCachedSongs(INITIAL_REAL_SONGS);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -197,18 +211,10 @@ export default function MusicPage() {
 
   // Initial Load & Realtime Subscription
   useEffect(() => {
-    // Immediate cached state to prevent layout flash
-    const cached = getCachedSongs();
-    if (cached.length > 0) {
-      setSongs(cached);
-    }
-
-    // Fetch live from Supabase
     fetchCloudSongs();
 
-    // Subscribe to Realtime Postgres Changes across all browsers/devices
     const channel = supabase
-      .channel("realtime-songs-channel")
+      .channel("realtime-songs-channel-v2")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "songs" },
@@ -327,18 +333,28 @@ export default function MusicPage() {
     };
 
     // 1. Insert to Supabase (Cloud Database)
-    const { data: inserted, error } = await supabase
-      .from("songs")
-      .insert(payload)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("Supabase insert error:", error);
+    try {
+      await supabase.from("songs").insert(payload);
+    } catch (e) {
+      console.error(e);
     }
 
-    // 2. Refresh Cloud Data
-    await fetchCloudSongs();
+    // 2. Optimistically update state and cache
+    const newSong: CustomSongItem = {
+      id: "song_" + Date.now(),
+      title: selectedTrack.trackName,
+      artist: selectedTrack.artistName,
+      url: selectedTrack.spotifyUrl,
+      album_cover: selectedTrack.artworkUrl,
+      reason: formReason.trim(),
+      sender_name: formSender,
+      added_by: fallbackUserId,
+      created_at: new Date().toISOString(),
+    };
+
+    const updated = [newSong, ...songs.filter((s) => s.title.toLowerCase() !== newSong.title.toLowerCase())];
+    setSongs(updated);
+    setCachedSongs(updated);
 
     showToast(`Music letter sent From: ${formSender === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
       emoji: "🎵",
@@ -353,12 +369,10 @@ export default function MusicPage() {
 
   // Delete Song
   const handleDeleteSong = async (songToDelete: CustomSongItem) => {
-    // Optimistically update UI
-    const updated = songs.filter((s) => s.id !== songToDelete.id);
+    const updated = songs.filter((s) => s.id !== songToDelete.id && s.title !== songToDelete.title);
     setSongs(updated);
     setCachedSongs(updated);
 
-    // Delete in Supabase Database
     try {
       if (songToDelete.id) {
         await supabase.from("songs").delete().eq("id", songToDelete.id);
@@ -370,7 +384,6 @@ export default function MusicPage() {
       console.error("Supabase delete error:", err);
     }
 
-    await fetchCloudSongs();
     showToast("Song letter removed 🗑️", { emoji: "🗑️" });
   };
 
