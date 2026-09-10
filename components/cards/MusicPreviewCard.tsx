@@ -1,36 +1,68 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
+import { createClient } from "@/lib/supabase/client";
 import {
   parseSongRow,
+  isStaleLegacySong,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import { ArrowRight, Disc } from "lucide-react";
 
 export function MusicPreviewCard() {
+  const supabase = useMemo(() => createClient(), []);
   const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Fetch all songs directly from server API
+  // Fetch all songs directly from Supabase PostgreSQL database
   const fetchCloudSongs = useCallback(async () => {
     try {
+      const { data, error } = await supabase
+        .from("songs")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        const active = data.filter((s) => !isStaleLegacySong(s.id));
+        setSongs(active.map(parseSongRow));
+        return;
+      }
+
+      // Fallback to API route
       const res = await fetch("/api/songs", { cache: "no-store" });
-      const data = await res.json();
-      if (data.songs && Array.isArray(data.songs)) {
-        const parsed = data.songs.map(parseSongRow);
-        setSongs(parsed);
+      const apiData = await res.json();
+      if (apiData.songs && Array.isArray(apiData.songs)) {
+        setSongs(apiData.songs.map(parseSongRow));
       }
     } catch (err) {
       console.error(err);
     }
-  }, []);
+  }, [supabase]);
 
   // Initial load
   useEffect(() => {
     fetchCloudSongs();
   }, [fetchCloudSongs]);
+
+  // Realtime subscription: update bento preview instantly when songs change
+  useEffect(() => {
+    const channel = supabase
+      .channel("music-preview-card-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "songs" },
+        () => {
+          fetchCloudSongs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, fetchCloudSongs]);
 
   // Auto-cycle songs every 4 seconds with smooth fade-in
   useEffect(() => {

@@ -7,10 +7,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { NavBar } from "@/components/layout/NavBar";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { useToast } from "@/components/providers/ToastProvider";
+import { createClient } from "@/lib/supabase/client";
 import {
   parseSongRow,
   encodeSongUrl,
   clearAllLegacyStorage,
+  isStaleLegacySong,
+  STALE_LEGACY_SONG_IDS,
   type CustomSongItem,
 } from "@/lib/musicStorage";
 import {
@@ -144,6 +147,7 @@ function MusicLetterCard({
 export default function MusicPage() {
   const { user, profile, isAdmin, isJane, isJosh } = useAuth();
   const { showToast } = useToast();
+  const supabase = useMemo(() => createClient(), []);
 
   const [songs, setSongs] = useState<CustomSongItem[]>([]);
   const [filter, setFilter] = useState<"all" | "jane" | "josh">("all");
@@ -163,25 +167,68 @@ export default function MusicPage() {
 
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
-  // Fetch all songs directly from server API
+  // Fetch all songs directly from Supabase PostgreSQL database
   const fetchCloudSongs = useCallback(async () => {
     try {
+      const { data, error } = await supabase
+        .from("songs")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (!error && data) {
+        const active = data.filter((s) => !isStaleLegacySong(s.id));
+        setSongs(active.map(parseSongRow));
+        return;
+      }
+
+      // Fallback to API route if direct query has issues
       const res = await fetch("/api/songs", { cache: "no-store" });
-      const data = await res.json();
-      if (data.songs && Array.isArray(data.songs)) {
-        const parsed = data.songs.map(parseSongRow);
-        setSongs(parsed);
+      const apiData = await res.json();
+      if (apiData.songs && Array.isArray(apiData.songs)) {
+        setSongs(apiData.songs.map(parseSongRow));
       }
     } catch (err) {
       console.error(err);
     }
-  }, []);
+  }, [supabase]);
 
-  // Initial Load: clear any old isolated storage and fetch directly from server API
+  // Initial Load: clear any old isolated storage and fetch directly from Supabase
   useEffect(() => {
     clearAllLegacyStorage();
     fetchCloudSongs();
   }, [fetchCloudSongs]);
+
+  // Realtime subscription: sync instantly across all open devices when a song is added/deleted
+  useEffect(() => {
+    const channel = supabase
+      .channel("music-page-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "songs" },
+        () => {
+          fetchCloudSongs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, fetchCloudSongs]);
+
+  // One-time automatic purge of the 5 old failed-to-delete duplicate seed IDs from Supabase
+  useEffect(() => {
+    if (user?.id) {
+      supabase
+        .from("songs")
+        .delete()
+        .in("id", STALE_LEGACY_SONG_IDS)
+        .then(() => {
+          fetchCloudSongs();
+        })
+        .catch(() => {});
+    }
+  }, [user?.id, supabase, fetchCloudSongs]);
 
   // Auto-set sender based on logged in user
   useEffect(() => {
@@ -268,34 +315,60 @@ export default function MusicPage() {
       return;
     }
 
+    if (!user) {
+      showToast("Please log in to dedicate a song letter!", {
+        emoji: "🔒",
+        type: "error",
+      });
+      return;
+    }
+
     setAdding(true);
 
     const safeUrl = encodeSongUrl(selectedTrack.spotifyUrl, selectedTrack.artworkUrl, formSender);
-    const fallbackUserId =
-      user?.id ||
-      profile?.id ||
-      (formSender === "josh"
-        ? "c3e9efa1-a933-43f3-91ad-dba9cf8d9fbe"
-        : "f4c3869d-c368-4bd6-bf45-f2f2ff5ab832");
 
-    const payload = {
-      title: selectedTrack.trackName,
-      artist: selectedTrack.artistName,
-      url: safeUrl,
-      reason: formReason.trim(),
-      added_by: fallbackUserId,
-    };
+    // 1. Direct Supabase insert with authenticated client (added_by must equal auth.uid() for RLS)
+    const { data: insertedData, error: insertError } = await supabase
+      .from("songs")
+      .insert({
+        title: selectedTrack.trackName,
+        artist: selectedTrack.artistName,
+        url: safeUrl,
+        reason: formReason.trim(),
+        added_by: user.id,
+      })
+      .select()
+      .single();
 
-    // Post to API
-    try {
-      await fetch("/api/songs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      await fetchCloudSongs();
-    } catch (e) {
-      console.error("API post error:", e);
+    if (insertError) {
+      console.error("Direct Supabase insert error:", insertError);
+
+      // Fallback to API route with user's access token
+      try {
+        const session = (await supabase.auth.getSession()).data.session;
+        const res = await fetch("/api/songs", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({
+            title: selectedTrack.trackName,
+            artist: selectedTrack.artistName,
+            url: safeUrl,
+            reason: formReason.trim(),
+            added_by: user.id,
+          }),
+        });
+        const resData = await res.json();
+        if (resData.error) {
+          showToast(`Failed to save: ${resData.error}`, { emoji: "❌", type: "error" });
+          setAdding(false);
+          return;
+        }
+      } catch (apiErr) {
+        console.error("API route error:", apiErr);
+      }
     }
 
     showToast(`Music letter sent From: ${formSender === "jane" ? "Jane 🌸" : "Josh 💻"}!`, {
@@ -307,23 +380,43 @@ export default function MusicPage() {
     setFormReason("");
     setShowAdd(false);
     setAdding(false);
+    await fetchCloudSongs();
   };
 
   // Delete Song
   const handleDeleteSong = async (songToDelete: CustomSongItem) => {
-    // Delete from API
+    // 1. Optimistic removal from UI state
+    setSongs((prev) => prev.filter((s) => s.id !== songToDelete.id));
+
+    // 2. Direct Supabase delete with authenticated client
     try {
+      if (songToDelete.id) {
+        await supabase.from("songs").delete().eq("id", songToDelete.id);
+      }
+      if (songToDelete.title) {
+        await supabase.from("songs").delete().ilike("title", songToDelete.title);
+      }
+    } catch (err) {
+      console.error("Supabase delete error:", err);
+    }
+
+    // 3. Also notify API route with session token as backup
+    try {
+      const session = (await supabase.auth.getSession()).data.session;
       await fetch("/api/songs", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({ id: songToDelete.id, title: songToDelete.title }),
       });
-      await fetchCloudSongs();
     } catch (err) {
       console.error("API delete error:", err);
     }
 
     showToast("Song letter removed 🗑️", { emoji: "🗑️" });
+    await fetchCloudSongs();
   };
 
   // Filter songs

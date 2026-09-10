@@ -5,6 +5,20 @@ export type CustomSongItem = Song & {
   sender_name?: string | null;
 };
 
+// Known legacy test seed IDs that were previously marked for deletion
+export const STALE_LEGACY_SONG_IDS = [
+  "57b9369e-1b6d-43b9-9dca-7aa79cde9d32", // Best Part
+  "143d84a0-9a0f-40ac-8394-76a45cca3d7e", // Every Way
+  "6935b4ae-ab99-4ea9-9f1f-da268ed1c9b4", // Every Way
+  "8f0c1669-9d3f-48af-9624-4ec1b91a5327", // Every Way
+  "4c38ca3c-8c4d-452b-8ce9-cc97675711ab", // Every Way
+];
+
+export function isStaleLegacySong(id?: string | null): boolean {
+  if (!id) return false;
+  return STALE_LEGACY_SONG_IDS.includes(id);
+}
+
 // Safe URL encoder to preserve real high-res album cover & sender in cloud
 export function encodeSongUrl(spotifyUrl: string, artworkUrl?: string | null, sender?: string | null): string {
   const base = spotifyUrl || "https://open.spotify.com";
