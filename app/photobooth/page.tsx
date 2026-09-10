@@ -264,18 +264,29 @@ export default function PhotoboothPage() {
   }, [isJane, isJosh]);
 
   // Client ID for Supabase Presence
-  const clientIdRef = useRef<string>("");
-  useEffect(() => {
-    if (!clientIdRef.current) {
-      clientIdRef.current = "cli_" + Math.random().toString(36).substring(2, 9);
-    }
-  }, []);
+  const [clientId] = useState(() => "cli_" + Math.random().toString(36).substring(2, 9));
+
+  // Socket & Partner Heartbeat Status
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [lastPartnerSeen, setLastPartnerSeen] = useState<number | null>(null);
 
   // Presence State (Online users in Collab session)
   const [onlineUsers, setOnlineUsers] = useState<{ josh: boolean; jane: boolean }>({
     josh: false,
     jane: false,
   });
+
+  // Dual-redundancy: Josh is online if (I am Josh & socket connected) OR (partner heartbeat/presence received within 15s)
+  const isJoshOnline =
+    (myRole === "josh" && isSocketConnected) ||
+    onlineUsers.josh ||
+    (lastPartnerSeen !== null && Date.now() - lastPartnerSeen < 15000 && myRole !== "josh");
+
+  // Jane is online if (I am Jane & socket connected) OR (partner heartbeat/presence received within 15s)
+  const isJaneOnline =
+    (myRole === "jane" && isSocketConnected) ||
+    onlineUsers.jane ||
+    (lastPartnerSeen !== null && Date.now() - lastPartnerSeen < 15000 && myRole !== "jane");
 
   // Slot Turn Assignments (Default: Slot 1 Josh, Slot 2 Jane, Slot 3 Josh, Slot 4 Jane)
   const [slotAssignments, setSlotAssignments] = useState<ShooterRole[]>([
@@ -349,11 +360,16 @@ export default function PhotoboothPage() {
     if (channelRef.current && sessionMode === "collab") {
       channelRef.current.track({
         role: myRole,
-        clientId: clientIdRef.current,
+        clientId,
         onlineAt: Date.now(),
       });
+      channelRef.current.send({
+        type: "broadcast",
+        event: "heartbeat",
+        payload: { role: myRole, time: Date.now() },
+      });
     }
-  }, [myRole, sessionMode]);
+  }, [myRole, sessionMode, clientId]);
 
   // 1. Initialize Camera
   const startCamera = useCallback(async () => {
@@ -430,9 +446,14 @@ export default function PhotoboothPage() {
   // Manual Trigger to re-sync state and presence
   const triggerManualSync = useCallback(() => {
     if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "heartbeat",
+        payload: { role: myRoleRef.current, time: Date.now() },
+      });
       channelRef.current.track({
         role: myRoleRef.current,
-        clientId: clientIdRef.current,
+        clientId,
         onlineAt: Date.now(),
       });
       channelRef.current.send({
@@ -442,33 +463,44 @@ export default function PhotoboothPage() {
       });
       showToast("Menyinkronkan status LDR Photobox... 🔄", { emoji: "📡" });
     }
-  }, [sessionMode, showToast]);
+  }, [sessionMode, showToast, clientId]);
 
   // 3. Supabase Realtime Collaboration Setup (Presence & Broadcast)
   useEffect(() => {
     if (sessionMode !== "collab") return;
 
-    const channel = supabase.channel("jj-photobooth-collab-v4", {
+    const channel = supabase.channel("jj-photobooth-collab-v5", {
       config: {
         broadcast: { ack: true, self: false },
-        presence: { key: clientIdRef.current || myRoleRef.current },
+        presence: { key: clientId },
       },
     });
 
     channelRef.current = channel;
 
-    // A. Listen for Partner's Presence
+    // A. Listen for Partner's Presence via Presence Sync
     channel.on("presence", { event: "sync" }, () => {
       const state = channel.presenceState();
+      const keys = Object.keys(state);
       const allPresences = Object.values(state).flat() as any[];
-      const hasJosh = allPresences.some((p) => p?.role === "josh");
-      const hasJane = allPresences.some((p) => p?.role === "jane");
+      const hasJosh = keys.includes("josh") || allPresences.some((p) => p?.role === "josh");
+      const hasJane = keys.includes("jane") || allPresences.some((p) => p?.role === "jane");
       setOnlineUsers({ josh: hasJosh, jane: hasJane });
     });
 
-    // B. State Synchronization Handlers
+    // B. Direct WebSocket Heartbeat (Instant sub-second partner detection)
+    channel.on("broadcast", { event: "heartbeat" }, ({ payload }) => {
+      if (payload?.role && payload.role !== myRoleRef.current) {
+        setLastPartnerSeen(Date.now());
+        setOnlineUsers((prev) => ({
+          ...prev,
+          [payload.role]: true,
+        }));
+      }
+    });
+
+    // C. State Synchronization Handlers
     channel.on("broadcast", { event: "request-state" }, () => {
-      // If we have any photo or are past slot 0, share state with newly joined partner
       const hasPhotos = photosRef.current.some((p) => !!p);
       if (hasPhotos || currentTurnSlotRef.current > 0) {
         channel.send({
@@ -504,7 +536,7 @@ export default function PhotoboothPage() {
       showToast("Photobox tersinkronisasi dengan pasangan! 🌸💻", { emoji: "✨" });
     });
 
-    // C. Listen for Slot Captured Photo Broadcast
+    // D. Listen for Slot Captured Photo Broadcast
     channel.on("broadcast", { event: "slot-captured" }, ({ payload }) => {
       const { slotIndex, dataUrl, shooter } = payload;
       setPhotos((prev) => {
@@ -534,12 +566,12 @@ export default function PhotoboothPage() {
       });
     });
 
-    // D. Listen for Live Partner Countdown
+    // E. Listen for Live Partner Countdown
     channel.on("broadcast", { event: "partner-countdown" }, ({ payload }) => {
       setPartnerCountdown(payload);
     });
 
-    // E. Listen for Shared Theme & Decoration Changes
+    // F. Listen for Shared Theme & Decoration Changes
     channel.on("broadcast", { event: "theme-change" }, ({ payload }) => {
       const found = FRAME_THEMES.find((t) => t.id === payload.themeId);
       if (found) setSelectedTheme(found);
@@ -569,37 +601,50 @@ export default function PhotoboothPage() {
     // Subscribe and track presence
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
+        setIsSocketConnected(true);
         await channel.track({
           role: myRoleRef.current,
-          clientId: clientIdRef.current,
+          clientId,
           onlineAt: Date.now(),
         });
-        // Request latest state in case partner is already in session
+        channel.send({
+          type: "broadcast",
+          event: "heartbeat",
+          payload: { role: myRoleRef.current, time: Date.now() },
+        });
         channel.send({
           type: "broadcast",
           event: "request-state",
           payload: { requester: myRoleRef.current },
         });
+      } else {
+        setIsSocketConnected(false);
       }
     });
 
-    // Heartbeat every 10s to keep presence connection robust
+    // Heartbeat every 4s to guarantee partner presence
     const heartbeat = setInterval(() => {
       if (channelRef.current) {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "heartbeat",
+          payload: { role: myRoleRef.current, time: Date.now() },
+        });
         channelRef.current.track({
           role: myRoleRef.current,
-          clientId: clientIdRef.current,
+          clientId,
           onlineAt: Date.now(),
         });
       }
-    }, 10000);
+    }, 4000);
 
     return () => {
       clearInterval(heartbeat);
       supabase.removeChannel(channel);
       channelRef.current = null;
+      setIsSocketConnected(false);
     };
-  }, [sessionMode, maxSlots, supabase, showToast]);
+  }, [sessionMode, maxSlots, supabase, showToast, clientId]);
 
   // Turn verification
   const assignedShooterForCurrentSlot = slotAssignments[currentTurnSlot % maxSlots];
@@ -1208,33 +1253,33 @@ export default function PhotoboothPage() {
                 {/* Josh pill */}
                 <div
                   className={`px-3 py-1 rounded-full border border-[#2C2824] text-xs font-display font-bold flex items-center gap-1.5 shadow-sm transition-all ${
-                    onlineUsers.josh
+                    isJoshOnline
                       ? "bg-[#BAE6FD] text-[#2C2824]"
                       : "bg-[#FAF5EE] text-[#7A7269] opacity-60"
                   }`}
                 >
                   <span>💻 Josh</span>
                   <span className="text-[10px]">
-                    {onlineUsers.josh ? "● Ready" : "○ Offline"}
+                    {isJoshOnline ? "● Ready" : "○ Offline"}
                   </span>
                 </div>
 
                 {/* Jane pill */}
                 <div
                   className={`px-3 py-1 rounded-full border border-[#2C2824] text-xs font-display font-bold flex items-center gap-1.5 shadow-sm transition-all ${
-                    onlineUsers.jane
+                    isJaneOnline
                       ? "bg-[#FFCCD5] text-[#2C2824]"
                       : "bg-[#FAF5EE] text-[#7A7269] opacity-60"
                   }`}
                 >
                   <span>🌸 Jane</span>
                   <span className="text-[10px]">
-                    {onlineUsers.jane ? "● Ready" : "○ Offline"}
+                    {isJaneOnline ? "● Ready" : "○ Offline"}
                   </span>
                 </div>
 
                 {/* Both online badge */}
-                {onlineUsers.josh && onlineUsers.jane && (
+                {isJoshOnline && isJaneOnline && (
                   <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-display font-black text-rose-600 bg-rose-100 border border-rose-300 px-2.5 py-0.5 rounded-full shadow-sm animate-pulse">
                     ✨ Berdua Terhubung! ♡
                   </span>
