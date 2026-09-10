@@ -263,6 +263,14 @@ export default function PhotoboothPage() {
     else if (isJosh) setMyRole("josh");
   }, [isJane, isJosh]);
 
+  // Client ID for Supabase Presence
+  const clientIdRef = useRef<string>("");
+  useEffect(() => {
+    if (!clientIdRef.current) {
+      clientIdRef.current = "cli_" + Math.random().toString(36).substring(2, 9);
+    }
+  }, []);
+
   // Presence State (Online users in Collab session)
   const [onlineUsers, setOnlineUsers] = useState<{ josh: boolean; jane: boolean }>({
     josh: false,
@@ -317,6 +325,35 @@ export default function PhotoboothPage() {
 
   // Realtime Channel Ref
   const channelRef = useRef<any>(null);
+
+  // Keep state refs updated for instant sync responses
+  const myRoleRef = useRef<ShooterRole>(myRole);
+  myRoleRef.current = myRole;
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+  const photoShootersRef = useRef(photoShooters);
+  photoShootersRef.current = photoShooters;
+  const currentTurnSlotRef = useRef(currentTurnSlot);
+  currentTurnSlotRef.current = currentTurnSlot;
+  const selectedThemeRef = useRef(selectedTheme);
+  selectedThemeRef.current = selectedTheme;
+  const selectedFilterRef = useRef(selectedFilter);
+  selectedFilterRef.current = selectedFilter;
+  const captionTextRef = useRef(captionText);
+  captionTextRef.current = captionText;
+  const stickersRef = useRef(stickers);
+  stickersRef.current = stickers;
+
+  // Track presence whenever myRole changes without tearing down channel
+  useEffect(() => {
+    if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.track({
+        role: myRole,
+        clientId: clientIdRef.current,
+        onlineAt: Date.now(),
+      });
+    }
+  }, [myRole, sessionMode]);
 
   // 1. Initialize Camera
   const startCamera = useCallback(async () => {
@@ -390,13 +427,31 @@ export default function PhotoboothPage() {
     return canvas.toDataURL("image/jpeg", 0.88);
   }, [isMirrored]);
 
+  // Manual Trigger to re-sync state and presence
+  const triggerManualSync = useCallback(() => {
+    if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.track({
+        role: myRoleRef.current,
+        clientId: clientIdRef.current,
+        onlineAt: Date.now(),
+      });
+      channelRef.current.send({
+        type: "broadcast",
+        event: "request-state",
+        payload: { requester: myRoleRef.current },
+      });
+      showToast("Menyinkronkan status LDR Photobox... 🔄", { emoji: "📡" });
+    }
+  }, [sessionMode, showToast]);
+
   // 3. Supabase Realtime Collaboration Setup (Presence & Broadcast)
   useEffect(() => {
     if (sessionMode !== "collab") return;
 
-    const channel = supabase.channel("jj-photobooth-collab", {
+    const channel = supabase.channel("jj-photobooth-collab-v4", {
       config: {
-        presence: { key: myRole },
+        broadcast: { ack: true, self: false },
+        presence: { key: clientIdRef.current || myRoleRef.current },
       },
     });
 
@@ -405,12 +460,51 @@ export default function PhotoboothPage() {
     // A. Listen for Partner's Presence
     channel.on("presence", { event: "sync" }, () => {
       const state = channel.presenceState();
-      const hasJosh = Object.keys(state).some((k) => k === "josh" || state[k]?.some((u: any) => u.role === "josh"));
-      const hasJane = Object.keys(state).some((k) => k === "jane" || state[k]?.some((u: any) => u.role === "jane"));
+      const allPresences = Object.values(state).flat() as any[];
+      const hasJosh = allPresences.some((p) => p?.role === "josh");
+      const hasJane = allPresences.some((p) => p?.role === "jane");
       setOnlineUsers({ josh: hasJosh, jane: hasJane });
     });
 
-    // B. Listen for Slot Captured Photo Broadcast
+    // B. State Synchronization Handlers
+    channel.on("broadcast", { event: "request-state" }, () => {
+      // If we have any photo or are past slot 0, share state with newly joined partner
+      const hasPhotos = photosRef.current.some((p) => !!p);
+      if (hasPhotos || currentTurnSlotRef.current > 0) {
+        channel.send({
+          type: "broadcast",
+          event: "sync-state",
+          payload: {
+            photos: photosRef.current,
+            photoShooters: photoShootersRef.current,
+            currentTurnSlot: currentTurnSlotRef.current,
+            themeId: selectedThemeRef.current.id,
+            filterId: selectedFilterRef.current.id,
+            caption: captionTextRef.current,
+            stickers: stickersRef.current,
+          },
+        });
+      }
+    });
+
+    channel.on("broadcast", { event: "sync-state" }, ({ payload }) => {
+      if (Array.isArray(payload.photos)) setPhotos(payload.photos);
+      if (Array.isArray(payload.photoShooters)) setPhotoShooters(payload.photoShooters);
+      if (typeof payload.currentTurnSlot === "number") setCurrentTurnSlot(payload.currentTurnSlot);
+      if (payload.themeId) {
+        const found = FRAME_THEMES.find((t) => t.id === payload.themeId);
+        if (found) setSelectedTheme(found);
+      }
+      if (payload.filterId) {
+        const found = PHOTO_FILTERS.find((f) => f.id === payload.filterId);
+        if (found) setSelectedFilter(found);
+      }
+      if (typeof payload.caption === "string") setCaptionText(payload.caption);
+      if (Array.isArray(payload.stickers)) setStickers(payload.stickers);
+      showToast("Photobox tersinkronisasi dengan pasangan! 🌸💻", { emoji: "✨" });
+    });
+
+    // C. Listen for Slot Captured Photo Broadcast
     channel.on("broadcast", { event: "slot-captured" }, ({ payload }) => {
       const { slotIndex, dataUrl, shooter } = payload;
       setPhotos((prev) => {
@@ -440,12 +534,12 @@ export default function PhotoboothPage() {
       });
     });
 
-    // C. Listen for Live Partner Countdown
+    // D. Listen for Live Partner Countdown
     channel.on("broadcast", { event: "partner-countdown" }, ({ payload }) => {
       setPartnerCountdown(payload);
     });
 
-    // D. Listen for Shared Theme & Decoration Changes
+    // E. Listen for Shared Theme & Decoration Changes
     channel.on("broadcast", { event: "theme-change" }, ({ payload }) => {
       const found = FRAME_THEMES.find((t) => t.id === payload.themeId);
       if (found) setSelectedTheme(found);
@@ -475,15 +569,37 @@ export default function PhotoboothPage() {
     // Subscribe and track presence
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
-        await channel.track({ role: myRole, onlineAt: Date.now() });
+        await channel.track({
+          role: myRoleRef.current,
+          clientId: clientIdRef.current,
+          onlineAt: Date.now(),
+        });
+        // Request latest state in case partner is already in session
+        channel.send({
+          type: "broadcast",
+          event: "request-state",
+          payload: { requester: myRoleRef.current },
+        });
       }
     });
 
+    // Heartbeat every 10s to keep presence connection robust
+    const heartbeat = setInterval(() => {
+      if (channelRef.current) {
+        channelRef.current.track({
+          role: myRoleRef.current,
+          clientId: clientIdRef.current,
+          onlineAt: Date.now(),
+        });
+      }
+    }, 10000);
+
     return () => {
+      clearInterval(heartbeat);
       supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [sessionMode, myRole, maxSlots, supabase, showToast]);
+  }, [sessionMode, maxSlots, supabase, showToast]);
 
   // Turn verification
   const assignedShooterForCurrentSlot = slotAssignments[currentTurnSlot % maxSlots];
@@ -1091,31 +1207,48 @@ export default function PhotoboothPage() {
 
                 {/* Josh pill */}
                 <div
-                  className={`px-3 py-1 rounded-full border border-[#2C2824] text-xs font-display font-bold flex items-center gap-1.5 shadow-sm ${
-                    onlineUsers.josh || myRole === "josh"
+                  className={`px-3 py-1 rounded-full border border-[#2C2824] text-xs font-display font-bold flex items-center gap-1.5 shadow-sm transition-all ${
+                    onlineUsers.josh
                       ? "bg-[#BAE6FD] text-[#2C2824]"
                       : "bg-[#FAF5EE] text-[#7A7269] opacity-60"
                   }`}
                 >
                   <span>💻 Josh</span>
                   <span className="text-[10px]">
-                    {onlineUsers.josh || myRole === "josh" ? "● Ready" : "○ Offline"}
+                    {onlineUsers.josh ? "● Ready" : "○ Offline"}
                   </span>
                 </div>
 
                 {/* Jane pill */}
                 <div
-                  className={`px-3 py-1 rounded-full border border-[#2C2824] text-xs font-display font-bold flex items-center gap-1.5 shadow-sm ${
-                    onlineUsers.jane || myRole === "jane"
+                  className={`px-3 py-1 rounded-full border border-[#2C2824] text-xs font-display font-bold flex items-center gap-1.5 shadow-sm transition-all ${
+                    onlineUsers.jane
                       ? "bg-[#FFCCD5] text-[#2C2824]"
                       : "bg-[#FAF5EE] text-[#7A7269] opacity-60"
                   }`}
                 >
                   <span>🌸 Jane</span>
                   <span className="text-[10px]">
-                    {onlineUsers.jane || myRole === "jane" ? "● Ready" : "○ Offline"}
+                    {onlineUsers.jane ? "● Ready" : "○ Offline"}
                   </span>
                 </div>
+
+                {/* Both online badge */}
+                {onlineUsers.josh && onlineUsers.jane && (
+                  <span className="hidden sm:inline-flex items-center gap-1 text-[11px] font-display font-black text-rose-600 bg-rose-100 border border-rose-300 px-2.5 py-0.5 rounded-full shadow-sm animate-pulse">
+                    ✨ Berdua Terhubung! ♡
+                  </span>
+                )}
+
+                {/* Manual Sync Button */}
+                <button
+                  onClick={triggerManualSync}
+                  className="px-2.5 py-1 rounded-xl border border-[#2C2824]/30 bg-white hover:bg-[#FAF5EE] text-[10px] font-display font-bold text-[#2C2824] flex items-center gap-1 shadow-sm transition-transform active:scale-95"
+                  title="Klik untuk sinkronisasi ulang status & foto"
+                >
+                  <RotateCcw size={11} />
+                  <span>Sync 🔄</span>
+                </button>
               </div>
 
               {/* Role Switcher for Testing/Visitors */}
