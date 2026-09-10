@@ -11,6 +11,7 @@ import confetti from "canvas-confetti";
 const NAV_ITEMS = [
   { href: "/", label: "Home", emoji: "🏠" },
   { href: "/journey", label: "Journey", emoji: "⏳" },
+  { href: "/photobooth", label: "Photobox", emoji: "🎞️" },
   { href: "/room", label: "Our Room", emoji: "🛋️" },
   { href: "/letters", label: "Letters", emoji: "💌" },
   { href: "/music", label: "Music", emoji: "🎧" },

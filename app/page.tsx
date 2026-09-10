@@ -10,6 +10,7 @@ import { AnniversaryPreviewCard } from "@/components/cards/AnniversaryPreviewCar
 import { MoodWidget } from "@/components/cards/MoodWidget";
 import { LetterCountCard } from "@/components/cards/LetterCountCard";
 import { MusicPreviewCard } from "@/components/cards/MusicPreviewCard";
+import { PhotoboothPreviewCard } from "@/components/cards/PhotoboothPreviewCard";
 import { MemoryPreviewCard } from "@/components/cards/MemoryPreviewCard";
 import { DailyQuestionCard } from "@/components/cards/DailyQuestionCard";
 import { StatsCard } from "@/components/cards/StatsCard";
@@ -120,12 +121,12 @@ export default function Home() {
               <DailyQuestionCard />
             </motion.div>
 
-            {/* ROW 4: Soundtrack (6 cols) + Memory Archive (6 cols) */}
+            {/* ROW 4: Soundtrack (4 cols) + Photobox (4 cols) + Memory Archive (4 cols) */}
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
-              className="md:col-span-6 min-h-[240px]"
+              className="md:col-span-4 min-h-[240px]"
             >
               <MusicPreviewCard />
             </motion.div>
@@ -133,8 +134,17 @@ export default function Home() {
             <motion.div
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.45 }}
-              className="md:col-span-6 min-h-[240px]"
+              transition={{ delay: 0.43 }}
+              className="md:col-span-4 min-h-[240px]"
+            >
+              <PhotoboothPreviewCard />
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.46 }}
+              className="md:col-span-4 min-h-[240px]"
             >
               <MemoryPreviewCard />
             </motion.div>
