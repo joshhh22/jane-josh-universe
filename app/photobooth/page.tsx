@@ -23,6 +23,12 @@ import {
   Type,
   Volume2,
   VolumeX,
+  Users,
+  User,
+  Radio,
+  ArrowRight,
+  Clock,
+  Shuffle,
 } from "lucide-react";
 
 // ─── 10 CUSTOM THEMED FRAMES ──────────────────────────────────────────
@@ -178,7 +184,6 @@ export const PHOTO_FILTERS: PhotoFilter[] = [
   { id: "golden", name: "Golden Hour", css: "sepia(0.22) saturate(1.3) brightness(1.05) contrast(1.05)" },
 ];
 
-// ─── STICKER COLLECTION ──────────────────────────────────────────────
 export const STICKER_LIST = [
   "🌸", "💻", "💖", "🎀", "✨", "🐱", "🍗", "💌", "🧸", "🍓", "🌷", "☀️", "💍", "🍀", "🍰", "🌙"
 ];
@@ -186,12 +191,13 @@ export const STICKER_LIST = [
 interface PlacedSticker {
   id: string;
   emoji: string;
-  x: number; // percentage (0 - 100)
-  y: number; // percentage (0 - 100)
+  x: number;
+  y: number;
   scale: number;
 }
 
 export type PhotoboothLayout = "strip" | "grid" | "duo";
+export type ShooterRole = "josh" | "jane";
 
 // ─── AUDIO SYNTHESIZER ────────────────────────────────────────────────
 function playBeep(freq = 880, duration = 0.12) {
@@ -220,12 +226,10 @@ function playShutterSound() {
     const bufferSize = ctx.sampleRate * 0.08;
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const output = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      output[i] = Math.random() * 2 - 1;
-    }
+    for (let i = 0; i < bufferSize; i++) output[i] = Math.random() * 2 - 1;
+
     const whiteNoise = ctx.createBufferSource();
     whiteNoise.buffer = buffer;
-
     const filter = ctx.createBiquadFilter();
     filter.type = "bandpass";
     filter.frequency.value = 1000;
@@ -243,13 +247,44 @@ function playShutterSound() {
   } catch (e) {}
 }
 
-// ─── MAIN PHOTOBOOTH PAGE COMPONENT ──────────────────────────────────
+// ─── MAIN PHOTOBOOTH COMPONENT ───────────────────────────────────────
 export default function PhotoboothPage() {
-  const { user, isAdmin } = useAuth();
+  const { user, profile, isAdmin, isJane, isJosh } = useAuth();
   const { showToast } = useToast();
   const supabase = useMemo(() => createClient(), []);
 
-  // Camera & Stream
+  // Mode: "solo" vs "collab" (Default to Collab LDR mode for Jane & Josh)
+  const [sessionMode, setSessionMode] = useState<"solo" | "collab">("collab");
+
+  // User's Role in Photobox
+  const [myRole, setMyRole] = useState<ShooterRole>("josh");
+  useEffect(() => {
+    if (isJane) setMyRole("jane");
+    else if (isJosh) setMyRole("josh");
+  }, [isJane, isJosh]);
+
+  // Presence State (Online users in Collab session)
+  const [onlineUsers, setOnlineUsers] = useState<{ josh: boolean; jane: boolean }>({
+    josh: false,
+    jane: false,
+  });
+
+  // Slot Turn Assignments (Default: Slot 1 Josh, Slot 2 Jane, Slot 3 Josh, Slot 4 Jane)
+  const [slotAssignments, setSlotAssignments] = useState<ShooterRole[]>([
+    "josh",
+    "jane",
+    "josh",
+    "jane",
+  ]);
+
+  // Current Active Slot for Collab
+  const [currentTurnSlot, setCurrentTurnSlot] = useState<number>(0);
+
+  // Photos array (4 slots)
+  const [photos, setPhotos] = useState<(string | null)[]>([null, null, null, null]);
+  const [photoShooters, setPhotoShooters] = useState<(ShooterRole | null)[]>([null, null, null, null]);
+
+  // Camera & Viewfinder
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
@@ -257,16 +292,13 @@ export default function PhotoboothPage() {
   const [isMirrored, setIsMirrored] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
 
-  // Photos captured (array of data URLs, 4 slots)
-  const [photos, setPhotos] = useState<(string | null)[]>([null, null, null, null]);
-  const [activeSlot, setActiveSlot] = useState<number | null>(null);
-
   // Shoot Countdown State
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [partnerCountdown, setPartnerCountdown] = useState<{ slot: number; count: number } | null>(null);
   const [isShootingSession, setIsShootingSession] = useState(false);
   const [flash, setFlash] = useState(false);
 
-  // Design Settings
+  // Frame & Styling State
   const [selectedTheme, setSelectedTheme] = useState<FrameTheme>(FRAME_THEMES[0]);
   const [selectedFilter, setSelectedFilter] = useState<PhotoFilter>(PHOTO_FILTERS[0]);
   const [selectedLayout, setSelectedLayout] = useState<PhotoboothLayout>("strip");
@@ -281,21 +313,19 @@ export default function PhotoboothPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [isSavingMemory, setIsSavingMemory] = useState(false);
 
-  // Maximum photo slots depending on layout
   const maxSlots = selectedLayout === "duo" ? 2 : 4;
 
-  // 1. Initialize Camera Stream
+  // Realtime Channel Ref
+  const channelRef = useRef<any>(null);
+
+  // 1. Initialize Camera
   const startCamera = useCallback(async () => {
     try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: cameraFacing,
-          width: { ideal: 1280 },
-          height: { ideal: 960 },
-        },
+        video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 960 } },
         audio: false,
       });
       streamRef.current = stream;
@@ -304,15 +334,11 @@ export default function PhotoboothPage() {
         videoRef.current.play();
       }
       setCameraActive(true);
-    } catch (err: any) {
+    } catch (err) {
       console.warn("Camera access failed:", err);
       setCameraActive(false);
-      showToast("Camera access was blocked or unavailable. You can also upload photos from gallery!", {
-        emoji: "📸",
-        type: "error",
-      });
     }
-  }, [cameraFacing, showToast]);
+  }, [cameraFacing]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -324,27 +350,22 @@ export default function PhotoboothPage() {
 
   useEffect(() => {
     startCamera();
-    return () => {
-      stopCamera();
-    };
+    return () => stopCamera();
   }, [startCamera, stopCamera]);
 
-  // Flip Camera Front/Back
   const toggleCameraFacing = () => {
     setCameraFacing((prev) => (prev === "user" ? "environment" : "user"));
   };
 
-  // 2. Capture a Single Frame from Video
+  // 2. Capture Single Snapshot
   const captureSnapshot = useCallback((): string | null => {
     if (!videoRef.current) return null;
     const video = videoRef.current;
     if (video.videoWidth === 0 || video.videoHeight === 0) return null;
 
     const canvas = document.createElement("canvas");
-    // Standard 4:3 portrait ratio crop for photobox
     const targetAspect = 4 / 3;
     const vidAspect = video.videoWidth / video.videoHeight;
-
     let sx = 0, sy = 0, sw = video.videoWidth, sh = video.videoHeight;
     if (vidAspect > targetAspect) {
       sw = video.videoHeight * targetAspect;
@@ -354,41 +375,205 @@ export default function PhotoboothPage() {
       sy = (video.videoHeight - sh) / 2;
     }
 
+    // High quality resolution
     canvas.width = 800;
     canvas.height = 600;
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
-    // Handle mirror flip
     if (isMirrored) {
       ctx.translate(canvas.width, 0);
       ctx.scale(-1, 1);
     }
 
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.92);
+    return canvas.toDataURL("image/jpeg", 0.88);
   }, [isMirrored]);
 
-  // 3. Automated 4-Cuts Session Execution
-  const runAutoShootSession = async () => {
+  // 3. Supabase Realtime Collaboration Setup (Presence & Broadcast)
+  useEffect(() => {
+    if (sessionMode !== "collab") return;
+
+    const channel = supabase.channel("jj-photobooth-collab", {
+      config: {
+        presence: { key: myRole },
+      },
+    });
+
+    channelRef.current = channel;
+
+    // A. Listen for Partner's Presence
+    channel.on("presence", { event: "sync" }, () => {
+      const state = channel.presenceState();
+      const hasJosh = Object.keys(state).some((k) => k === "josh" || state[k]?.some((u: any) => u.role === "josh"));
+      const hasJane = Object.keys(state).some((k) => k === "jane" || state[k]?.some((u: any) => u.role === "jane"));
+      setOnlineUsers({ josh: hasJosh, jane: hasJane });
+    });
+
+    // B. Listen for Slot Captured Photo Broadcast
+    channel.on("broadcast", { event: "slot-captured" }, ({ payload }) => {
+      const { slotIndex, dataUrl, shooter } = payload;
+      setPhotos((prev) => {
+        const copy = [...prev];
+        copy[slotIndex] = dataUrl;
+        return copy;
+      });
+      setPhotoShooters((prev) => {
+        const copy = [...prev];
+        copy[slotIndex] = shooter;
+        return copy;
+      });
+
+      // Advance turn
+      setCurrentTurnSlot((prev) => (slotIndex + 1 < maxSlots ? slotIndex + 1 : 0));
+      setPartnerCountdown(null);
+
+      confetti({
+        particleCount: 35,
+        spread: 60,
+        origin: { y: 0.5 },
+        colors: shooter === "jane" ? ["#FFCCD5", "#FDA4AF"] : ["#BAE6FD", "#93C5FD"],
+      });
+      showToast(`${shooter === "jane" ? "Jane 🌸" : "Josh 💻"} snapped Grid ${slotIndex + 1}!`, {
+        emoji: "📸",
+        type: "love",
+      });
+    });
+
+    // C. Listen for Live Partner Countdown
+    channel.on("broadcast", { event: "partner-countdown" }, ({ payload }) => {
+      setPartnerCountdown(payload);
+    });
+
+    // D. Listen for Shared Theme & Decoration Changes
+    channel.on("broadcast", { event: "theme-change" }, ({ payload }) => {
+      const found = FRAME_THEMES.find((t) => t.id === payload.themeId);
+      if (found) setSelectedTheme(found);
+    });
+
+    channel.on("broadcast", { event: "filter-change" }, ({ payload }) => {
+      const found = PHOTO_FILTERS.find((f) => f.id === payload.filterId);
+      if (found) setSelectedFilter(found);
+    });
+
+    channel.on("broadcast", { event: "caption-change" }, ({ payload }) => {
+      setCaptionText(payload.text);
+    });
+
+    channel.on("broadcast", { event: "stickers-update" }, ({ payload }) => {
+      setStickers(payload.stickers);
+    });
+
+    channel.on("broadcast", { event: "reset-session" }, () => {
+      setPhotos([null, null, null, null]);
+      setPhotoShooters([null, null, null, null]);
+      setCurrentTurnSlot(0);
+      setStickers([]);
+      showToast("Started a fresh Photobox strip together! 🎞️", { emoji: "✨" });
+    });
+
+    // Subscribe and track presence
+    channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.track({ role: myRole, onlineAt: Date.now() });
+      }
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [sessionMode, myRole, maxSlots, supabase, showToast]);
+
+  // Turn verification
+  const assignedShooterForCurrentSlot = slotAssignments[currentTurnSlot % maxSlots];
+  const isMyTurnInCollab = sessionMode === "solo" || assignedShooterForCurrentSlot === myRole;
+
+  // 4. Capture photo for current slot (Triggered by shooter)
+  const takeTurnShot = async (targetSlot: number) => {
     if (!cameraActive) {
-      showToast("Please enable camera or upload photos first!", { emoji: "📷", type: "error" });
+      showToast("Please enable camera or upload photos from gallery!", { emoji: "📷", type: "error" });
       return;
     }
 
     setIsShootingSession(true);
+
+    // 3s Countdown with Audio
+    for (let c = 3; c > 0; c--) {
+      setCountdown(c);
+      if (soundEnabled) playBeep(750, 0.08);
+
+      // Broadcast countdown to partner so their screen shows it in real time
+      if (channelRef.current && sessionMode === "collab") {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "partner-countdown",
+          payload: { slot: targetSlot, count: c },
+        });
+      }
+      await new Promise((r) => setTimeout(r, 900));
+    }
+
+    setCountdown(0);
+    if (soundEnabled) playShutterSound();
+    setFlash(true);
+    setTimeout(() => setFlash(false), 250);
+
+    const shot = captureSnapshot();
+    if (shot) {
+      // Local state update
+      setPhotos((prev) => {
+        const copy = [...prev];
+        copy[targetSlot] = shot;
+        return copy;
+      });
+      setPhotoShooters((prev) => {
+        const copy = [...prev];
+        copy[targetSlot] = myRole;
+        return copy;
+      });
+
+      // Broadcast to partner over Supabase Realtime
+      if (channelRef.current && sessionMode === "collab") {
+        channelRef.current.send({
+          type: "broadcast",
+          event: "slot-captured",
+          payload: { slotIndex: targetSlot, dataUrl: shot, shooter: myRole },
+        });
+      }
+
+      // Next slot
+      const nextSlot = targetSlot + 1;
+      if (nextSlot < maxSlots) {
+        setCurrentTurnSlot(nextSlot);
+      } else {
+        // Strip complete!
+        confetti({
+          particleCount: 80,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ["#FFCCD5", "#BAE6FD", "#FEF08A", "#D8D2FF"],
+        });
+        showToast("Photostrip complete! You both look so adorable ♡", { emoji: "💖", type: "love" });
+      }
+    }
+
+    setCountdown(null);
+    setIsShootingSession(false);
+  };
+
+  // Solo mode auto-session
+  const runSoloAutoSession = async () => {
+    if (!cameraActive) return;
+    setIsShootingSession(true);
     const newPhotos = [...photos];
 
     for (let slot = 0; slot < maxSlots; slot++) {
-      setActiveSlot(slot);
-
-      // Countdown 3.. 2.. 1..
       for (let c = 3; c > 0; c--) {
         setCountdown(c);
         if (soundEnabled) playBeep(750, 0.08);
         await new Promise((r) => setTimeout(r, 900));
       }
-
       setCountdown(0);
       if (soundEnabled) playShutterSound();
       setFlash(true);
@@ -399,37 +584,16 @@ export default function PhotoboothPage() {
         newPhotos[slot] = shot;
         setPhotos([...newPhotos]);
       }
-
       await new Promise((r) => setTimeout(r, 600));
     }
 
     setCountdown(null);
-    setActiveSlot(null);
     setIsShootingSession(false);
-    confetti({
-      particleCount: 60,
-      spread: 70,
-      origin: { y: 0.6 },
-      colors: ["#FFCCD5", "#BAE6FD", "#FEF08A", "#D8D2FF"],
-    });
-    showToast("Photobox strip complete! Now customize your frame ♡", { emoji: "✨", type: "love" });
+    confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+    showToast("Photobox strip complete! Now decorate your frame ♡", { emoji: "✨", type: "love" });
   };
 
-  // Manual 1-Shot capture into specific slot
-  const takeSingleShot = (targetIndex: number) => {
-    if (!cameraActive) return;
-    if (soundEnabled) playShutterSound();
-    setFlash(true);
-    setTimeout(() => setFlash(false), 200);
-    const shot = captureSnapshot();
-    if (shot) {
-      const copy = [...photos];
-      copy[targetIndex] = shot;
-      setPhotos(copy);
-    }
-  };
-
-  // 4. File Upload Fallback (Multiple or Single)
+  // Upload from Gallery fallback
   const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -445,28 +609,64 @@ export default function PhotoboothPage() {
 
     Promise.all(readers).then((results) => {
       const copy = [...photos];
+      const shooterCopy = [...photoShooters];
       results.forEach((dataUrl, idx) => {
-        if (idx < maxSlots) copy[idx] = dataUrl;
+        if (idx < maxSlots) {
+          copy[idx] = dataUrl;
+          shooterCopy[idx] = myRole;
+          // Broadcast each uploaded photo
+          if (channelRef.current && sessionMode === "collab") {
+            channelRef.current.send({
+              type: "broadcast",
+              event: "slot-captured",
+              payload: { slotIndex: idx, dataUrl, shooter: myRole },
+            });
+          }
+        }
       });
       setPhotos(copy);
-      showToast(`Uploaded ${results.length} photos from gallery! 📸`, { emoji: "✨" });
+      setPhotoShooters(shooterCopy);
+      showToast(`Uploaded ${results.length} photos! 📸`, { emoji: "✨" });
     });
   };
 
-  // Retake individual slot
-  const resetSlot = (slotIdx: number) => {
-    const copy = [...photos];
-    copy[slotIdx] = null;
-    setPhotos(copy);
+  // Broadcast Theme change
+  const handleThemeChange = (theme: FrameTheme) => {
+    setSelectedTheme(theme);
+    if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "theme-change",
+        payload: { themeId: theme.id },
+      });
+    }
   };
 
-  // Reset all
-  const resetAllPhotos = () => {
-    setPhotos([null, null, null, null]);
-    setStickers([]);
+  // Broadcast Filter change
+  const handleFilterChange = (filter: PhotoFilter) => {
+    setSelectedFilter(filter);
+    if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "filter-change",
+        payload: { filterId: filter.id },
+      });
+    }
   };
 
-  // 5. Add Sticker
+  // Broadcast Caption change
+  const handleCaptionChange = (text: string) => {
+    setCaptionText(text);
+    if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "caption-change",
+        payload: { text },
+      });
+    }
+  };
+
+  // Broadcast Sticker add
   const addSticker = (emoji: string) => {
     const newSticker: PlacedSticker = {
       id: "stk_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4),
@@ -475,24 +675,60 @@ export default function PhotoboothPage() {
       y: 20 + Math.random() * 60,
       scale: 1,
     };
-    setStickers((prev) => [...prev, newSticker]);
-    showToast(`Added sticker ${emoji}! Drag to position ♡`, { emoji: "🎀" });
+    const updated = [...stickers, newSticker];
+    setStickers(updated);
+    if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "stickers-update",
+        payload: { stickers: updated },
+      });
+    }
   };
 
   const removeSticker = (id: string) => {
-    setStickers((prev) => prev.filter((s) => s.id !== id));
+    const updated = stickers.filter((s) => s.id !== id);
+    setStickers(updated);
+    if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "stickers-update",
+        payload: { stickers: updated },
+      });
+    }
   };
 
-  // 6. Canvas High-Resolution Export
+  // Reset entire round
+  const resetEntireSession = () => {
+    setPhotos([null, null, null, null]);
+    setPhotoShooters([null, null, null, null]);
+    setCurrentTurnSlot(0);
+    setStickers([]);
+    if (channelRef.current && sessionMode === "collab") {
+      channelRef.current.send({
+        type: "broadcast",
+        event: "reset-session",
+        payload: {},
+      });
+    }
+  };
+
+  // Swap Slot Assignment
+  const toggleSlotShooter = (idx: number) => {
+    const copy = [...slotAssignments];
+    copy[idx] = copy[idx] === "josh" ? "jane" : "josh";
+    setSlotAssignments(copy);
+  };
+
+  // 5. High-Resolution Canvas Export
   const generateCanvasImage = useCallback(async (): Promise<string | null> => {
     const validPhotos = photos.slice(0, maxSlots);
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
     if (!ctx) return null;
 
-    // Dimension scaling
     let w = 800;
-    let h = 2400; // default for 1x4 vertical strip
+    let h = 2400; // default 1x4 vertical strip
 
     if (selectedLayout === "grid") {
       w = 1600;
@@ -505,20 +741,18 @@ export default function PhotoboothPage() {
     canvas.width = w;
     canvas.height = h;
 
-    // Draw background
+    // Background
     ctx.fillStyle = selectedTheme.bg;
     ctx.fillRect(0, 0, w, h);
 
-    // Decorative 35mm film perforations
+    // Film sprocket holes
     if (selectedTheme.decorType === "film") {
       ctx.fillStyle = "#27272A";
       const holeW = 28;
       const holeH = 42;
       const step = 64;
       for (let y = 30; y < h - 30; y += step) {
-        // Left sprocket holes
         ctx.fillRect(16, y, holeW, holeH);
-        // Right sprocket holes
         ctx.fillRect(w - 16 - holeW, y, holeW, holeH);
       }
     }
@@ -528,14 +762,13 @@ export default function PhotoboothPage() {
     ctx.lineWidth = 14;
     ctx.strokeRect(7, 7, w - 14, h - 14);
 
-    // Header Badge
+    // Top Header Badge
     const headerY = selectedLayout === "grid" ? 70 : 80;
     ctx.font = "bold 32px var(--font-syne, 'Trebuchet MS', sans-serif)";
     ctx.fillStyle = selectedTheme.textColor;
     ctx.textAlign = "center";
     ctx.fillText(selectedTheme.badge, w / 2, headerY);
 
-    // Load and draw photo slots
     const photoMarginX = selectedTheme.decorType === "film" ? 64 : 48;
     const headerSpace = 130;
     const footerSpace = 180;
@@ -555,26 +788,19 @@ export default function PhotoboothPage() {
     );
 
     if (selectedLayout === "strip") {
-      // 4 cuts vertically
       const photoH = (availableH - 3 * 24) / 4;
       const photoW = w - 2 * photoMarginX;
 
       for (let i = 0; i < 4; i++) {
         const py = headerSpace + i * (photoH + 24);
         const px = photoMarginX;
-
-        // Draw photo frame placeholder
         ctx.fillStyle = "#E5E7EB";
         ctx.fillRect(px, py, photoW, photoH);
 
         const img = imgElements[i];
         if (img) {
           ctx.save();
-          // Apply filter on canvas
-          if (selectedFilter.css !== "none") {
-            ctx.filter = selectedFilter.css;
-          }
-          // Draw image cropped cover
+          if (selectedFilter.css !== "none") ctx.filter = selectedFilter.css;
           const imgAspect = img.width / img.height;
           const boxAspect = photoW / photoH;
           let sx = 0, sy = 0, sw = img.width, sh = img.height;
@@ -588,19 +814,16 @@ export default function PhotoboothPage() {
           ctx.drawImage(img, sx, sy, sw, sh, px, py, photoW, photoH);
           ctx.restore();
         } else {
-          // Empty slot placeholder
           ctx.font = "italic 28px sans-serif";
           ctx.fillStyle = "#9CA3AF";
-          ctx.fillText(`Pose ${i + 1} ♡`, px + photoW / 2, py + photoH / 2);
+          ctx.fillText(`Grid ${i + 1} (${slotAssignments[i] === "jane" ? "Jane 🌸" : "Josh 💻"})`, px + photoW / 2, py + photoH / 2);
         }
 
-        // Inner frame stroke around each photo
         ctx.strokeStyle = selectedTheme.borderColor;
         ctx.lineWidth = 6;
         ctx.strokeRect(px, py, photoW, photoH);
       }
     } else if (selectedLayout === "grid") {
-      // 2x2 grid
       const gap = 24;
       const photoW = (w - 2 * photoMarginX - gap) / 2;
       const photoH = (availableH - gap) / 2;
@@ -640,7 +863,6 @@ export default function PhotoboothPage() {
         ctx.strokeRect(pos.x, pos.y, photoW, photoH);
       }
     } else if (selectedLayout === "duo") {
-      // 2 cuts vertically
       const photoH = (availableH - 24) / 2;
       const photoW = w - 2 * photoMarginX;
 
@@ -674,7 +896,7 @@ export default function PhotoboothPage() {
       }
     }
 
-    // Draw stickers
+    // Stickers
     stickers.forEach((stk) => {
       const sx = (stk.x / 100) * w;
       const sy = (stk.y / 100) * h;
@@ -684,38 +906,37 @@ export default function PhotoboothPage() {
       ctx.fillText(stk.emoji, sx, sy);
     });
 
-    // Draw Footer Caption & Subtitle
+    // Caption
     const footerY = h - 95;
     ctx.textAlign = "center";
     ctx.font = "bold 32px var(--font-caveat, 'Comic Sans MS', cursive)";
     ctx.fillStyle = selectedTheme.textColor;
     ctx.fillText(captionText, w / 2, footerY);
 
-    // Subtitle / Date
+    // Subtitle & Date
     ctx.font = "bold 20px var(--font-syne, 'Trebuchet MS', sans-serif)";
     ctx.fillStyle = selectedTheme.textColor;
     const dateStr = showDate ? ` • ${new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}` : "";
     ctx.fillText(`${selectedTheme.subtitle}${dateStr}`, w / 2, footerY + 45);
 
     return canvas.toDataURL("image/png");
-  }, [photos, selectedTheme, selectedFilter, selectedLayout, captionText, showDate, stickers, maxSlots]);
+  }, [photos, selectedTheme, selectedFilter, selectedLayout, captionText, showDate, stickers, maxSlots, slotAssignments]);
 
-  // Download high-res PNG
   const handleDownload = async () => {
     setIsExporting(true);
     try {
       const dataUrl = await generateCanvasImage();
       if (!dataUrl) {
-        showToast("Please capture some photos first!", { emoji: "📷", type: "error" });
+        showToast("Please snap some photos first!", { emoji: "📷", type: "error" });
         setIsExporting(false);
         return;
       }
       const link = document.createElement("a");
-      link.download = `jane-josh-4cuts-${Date.now()}.png`;
+      link.download = `jj-4cuts-collab-${Date.now()}.png`;
       link.href = dataUrl;
       link.click();
       confetti({ particleCount: 70, spread: 80, origin: { y: 0.7 } });
-      showToast("Photostrip downloaded successfully! 🎉", { emoji: "🎞️", type: "love" });
+      showToast("Photostrip downloaded! Ready for printing or story IG ♡", { emoji: "🎞️", type: "love" });
     } catch (e) {
       console.error(e);
       showToast("Failed to download image", { emoji: "❌", type: "error" });
@@ -724,10 +945,9 @@ export default function PhotoboothPage() {
     }
   };
 
-  // Save directly to Memories Scrapbook (/memories)
   const handleSaveToMemories = async () => {
     if (!user) {
-      showToast("Please log in first to save directly to Our Memories!", { emoji: "🔒", type: "error" });
+      showToast("Please log in first to save to memories!", { emoji: "🔒", type: "error" });
       return;
     }
 
@@ -735,17 +955,15 @@ export default function PhotoboothPage() {
     try {
       const dataUrl = await generateCanvasImage();
       if (!dataUrl) {
-        showToast("Please take some photos first!", { emoji: "📸", type: "error" });
+        showToast("Please snap some photos first!", { emoji: "📸", type: "error" });
         setIsSavingMemory(false);
         return;
       }
 
-      // Convert dataUrl to blob
       const res = await fetch(dataUrl);
       const blob = await res.blob();
       const filename = `photobooth/${user.id}/${Date.now()}.png`;
 
-      // Upload to Supabase Storage
       const { data: uploadData, error: uploadErr } = await supabase.storage
         .from("memories")
         .upload(filename, blob, { contentType: "image/png", upsert: true });
@@ -756,27 +974,22 @@ export default function PhotoboothPage() {
         if (urlData?.publicUrl) publicUrl = urlData.publicUrl;
       }
 
-      // Insert record to memories table
-      const { error: insertErr } = await supabase.from("memories").insert({
-        title: `JJ Photobox (${selectedTheme.name}) 🎞️`,
-        description: captionText || "Our cute 4-cuts photobooth memories ♡",
+      await supabase.from("memories").insert({
+        title: `JJ LDR Photobox (${selectedTheme.name}) 🎞️`,
+        description: captionText || "Our long distance 4-cuts photobooth strip ♡",
         image_url: publicUrl,
         creator: user.id,
         memory_date: new Date().toISOString().split("T")[0],
       });
-
-      if (insertErr) {
-        console.warn("Memories insert notice:", insertErr);
-      }
 
       confetti({ particleCount: 90, spread: 90, origin: { y: 0.5 } });
       showToast("Photostrip saved permanently to Our Memories scrapbook! 📸🌸", {
         emoji: "💖",
         type: "love",
       });
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-      showToast("Saved photostrip! Download available anytime.", { emoji: "✨" });
+      showToast("Saved photostrip!", { emoji: "✨" });
     } finally {
       setIsSavingMemory(false);
     }
@@ -800,59 +1013,160 @@ export default function PhotoboothPage() {
           )}
         </AnimatePresence>
 
-        <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-          {/* Header Title */}
+        <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+          {/* Header Title & Mode Controls */}
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b-2 border-[#2C2824]/15">
             <div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#FFE4E6] border-2 border-[#2C2824] shadow-[2px_2px_0px_#2C2824] text-xs font-display font-bold uppercase tracking-wider mb-2">
                 <Sparkles size={12} className="text-[#9F1239]" />
-                <span>JJ 4-Cuts • Korean Photobox</span>
+                <span>JJ 4-Cuts • Realtime LDR Photobox</span>
               </div>
               <h1 className="font-display font-black text-3xl sm:text-5xl text-[#2C2824] tracking-tight">
                 our online photobox 🎞️📸
               </h1>
               <p className="font-hand text-xl sm:text-2xl text-[#7A7269] mt-0.5">
-                strike 4 cute poses, decorate your frame, and print our digital photostrip ♡
+                {sessionMode === "collab"
+                  ? "janjian photobox berdua dari jauh: ganti-gantian pose Grid 1, 2, 3, 4 bareng Jane & Josh ♡"
+                  : "take 4 cute poses yourself and decorate your photostrip ♡"}
               </p>
             </div>
 
-            {/* Top Quick Actions */}
-            <div className="flex items-center gap-2">
+            {/* Mode & Sound Switchers */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Session Mode Selector */}
+              <div className="bg-[#FFFDF9] border-2 border-[#2C2824] p-1 rounded-2xl shadow-[2px_2px_0px_#2C2824] flex items-center gap-1">
+                <button
+                  onClick={() => setSessionMode("collab")}
+                  className={`px-3 py-1.5 rounded-xl font-display font-black text-xs flex items-center gap-1.5 transition-all ${
+                    sessionMode === "collab"
+                      ? "bg-[#FFCCD5] border border-[#2C2824] text-[#2C2824] shadow-sm -translate-y-0.5"
+                      : "text-[#7A7269] hover:text-[#2C2824]"
+                  }`}
+                >
+                  <Users size={14} />
+                  <span>Janjian Berdua 🌸💻</span>
+                </button>
+                <button
+                  onClick={() => setSessionMode("solo")}
+                  className={`px-3 py-1.5 rounded-xl font-display font-black text-xs flex items-center gap-1.5 transition-all ${
+                    sessionMode === "solo"
+                      ? "bg-[#BAE6FD] border border-[#2C2824] text-[#2C2824] shadow-sm -translate-y-0.5"
+                      : "text-[#7A7269] hover:text-[#2C2824]"
+                  }`}
+                >
+                  <User size={14} />
+                  <span>Solo Mode</span>
+                </button>
+              </div>
+
+              {/* Sound toggle */}
               <button
                 onClick={() => setSoundEnabled(!soundEnabled)}
-                className="neu-box p-2 bg-[#FFFDF9] border-2 border-[#2C2824] shadow-[2px_2px_0px_#2C2824] rounded-xl text-xs font-display font-bold flex items-center gap-1.5"
-                title={soundEnabled ? "Mute shutter sound" : "Unmute shutter sound"}
+                className="neu-box p-2 bg-[#FFFDF9] border-2 border-[#2C2824] shadow-[2px_2px_0px_#2C2824] rounded-xl text-xs font-display font-bold flex items-center gap-1"
+                title={soundEnabled ? "Mute shutter" : "Unmute shutter"}
               >
                 {soundEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
-                <span className="hidden sm:inline">{soundEnabled ? "Sound ON" : "Sound OFF"}</span>
               </button>
-
-              <label className="neu-btn neu-btn-yellow text-xs py-2 px-3 shadow-[2.5px_2.5px_0px_#2C2824] flex items-center gap-1.5 cursor-pointer">
-                <Upload size={14} />
-                <span>Upload Photos</span>
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={handleGalleryUpload}
-                  className="hidden"
-                />
-              </label>
             </div>
           </div>
 
+          {/* 🌸💻 REALTIME PRESENCE & TURN BANNER (When in Collab Mode) */}
+          {sessionMode === "collab" && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="neu-box p-4 bg-[#EDE9FE] border-[2.5px] border-[#2C2824] shadow-[4px_4px_0px_#2C2824] rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3"
+            >
+              {/* Presence Status */}
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 border border-[#2C2824]"></span>
+                  </span>
+                  <span className="font-display font-black text-xs uppercase tracking-wider text-[#2C2824]">
+                    LDR Room Live:
+                  </span>
+                </div>
+
+                {/* Josh pill */}
+                <div
+                  className={`px-3 py-1 rounded-full border border-[#2C2824] text-xs font-display font-bold flex items-center gap-1.5 shadow-sm ${
+                    onlineUsers.josh || myRole === "josh"
+                      ? "bg-[#BAE6FD] text-[#2C2824]"
+                      : "bg-[#FAF5EE] text-[#7A7269] opacity-60"
+                  }`}
+                >
+                  <span>💻 Josh</span>
+                  <span className="text-[10px]">
+                    {onlineUsers.josh || myRole === "josh" ? "● Ready" : "○ Offline"}
+                  </span>
+                </div>
+
+                {/* Jane pill */}
+                <div
+                  className={`px-3 py-1 rounded-full border border-[#2C2824] text-xs font-display font-bold flex items-center gap-1.5 shadow-sm ${
+                    onlineUsers.jane || myRole === "jane"
+                      ? "bg-[#FFCCD5] text-[#2C2824]"
+                      : "bg-[#FAF5EE] text-[#7A7269] opacity-60"
+                  }`}
+                >
+                  <span>🌸 Jane</span>
+                  <span className="text-[10px]">
+                    {onlineUsers.jane || myRole === "jane" ? "● Ready" : "○ Offline"}
+                  </span>
+                </div>
+              </div>
+
+              {/* Role Switcher for Testing/Visitors */}
+              <div className="flex items-center gap-2 text-xs font-display font-bold">
+                <span className="text-[#7A7269]">I am posing as:</span>
+                <div className="flex bg-white rounded-xl border-2 border-[#2C2824] p-0.5 shadow-sm">
+                  <button
+                    onClick={() => setMyRole("josh")}
+                    className={`px-2.5 py-0.5 rounded-lg transition-colors ${
+                      myRole === "josh" ? "bg-[#BAE6FD] text-[#2C2824]" : "text-[#7A7269]"
+                    }`}
+                  >
+                    Josh 💻
+                  </button>
+                  <button
+                    onClick={() => setMyRole("jane")}
+                    className={`px-2.5 py-0.5 rounded-lg transition-colors ${
+                      myRole === "jane" ? "bg-[#FFCCD5] text-[#2C2824]" : "text-[#7A7269]"
+                    }`}
+                  >
+                    Jane 🌸
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {/* Main Dual Workspace: Left Camera/Controls + Right Live Photostrip Preview */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* ─── LEFT COLUMN: Live Camera & Capture Tools (7 cols) ─── */}
+            {/* ─── LEFT COLUMN: Live Camera & Turn-Based Viewfinder (7 cols) ─── */}
             <div className="lg:col-span-7 space-y-6">
-              {/* Camera Viewfinder Box */}
+              {/* Camera & Turn Viewfinder Card */}
               <div className="neu-box p-4 sm:p-5 bg-[#FFFDF9] border-[2.5px] border-[#2C2824] shadow-[6px_6px_0px_#2C2824] rounded-3xl space-y-4 relative overflow-hidden">
+                {/* Header Row: Whose Turn is it? */}
                 <div className="flex items-center justify-between pb-2 border-b-2 border-[#2C2824]/10">
                   <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-emerald-400 animate-pulse border border-[#2C2824]" />
-                    <span className="font-display font-black text-sm text-[#2C2824]">
-                      {cameraActive ? "Live Viewfinder" : "Camera Offline"}
-                    </span>
+                    {sessionMode === "collab" ? (
+                      <span className="font-display font-black text-sm text-[#2C2824] flex items-center gap-1.5">
+                        <Clock size={16} className="text-[#9F1239]" />
+                        <span>
+                          Giliran Grid {currentTurnSlot + 1}:{" "}
+                          <strong className={assignedShooterForCurrentSlot === "jane" ? "text-rose-600" : "text-sky-600"}>
+                            {assignedShooterForCurrentSlot === "jane" ? "Jane 🌸" : "Josh 💻"}
+                          </strong>
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="font-display font-black text-sm text-[#2C2824]">
+                        Solo Viewfinder
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -875,154 +1189,279 @@ export default function PhotoboothPage() {
                   </div>
                 </div>
 
-                {/* Video Monitor with Live Filter Applied */}
+                {/* Viewfinder: Active Camera OR Waiting State for Partner */}
                 <div className="relative aspect-[4/3] w-full rounded-2xl overflow-hidden bg-[#2C2824] border-2 border-[#2C2824] flex items-center justify-center">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    className="w-full h-full object-cover"
-                    style={{
-                      transform: isMirrored ? "scaleX(-1)" : "none",
-                      filter: selectedFilter.css,
-                    }}
-                  />
+                  {/* If it's my turn OR solo mode: show live camera */}
+                  {isMyTurnInCollab ? (
+                    <>
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-cover"
+                        style={{
+                          transform: isMirrored ? "scaleX(-1)" : "none",
+                          filter: selectedFilter.css,
+                        }}
+                      />
 
-                  {/* Countdown Overlay */}
-                  <AnimatePresence>
-                    {countdown !== null && countdown > 0 && (
-                      <motion.div
-                        key={countdown}
-                        initial={{ scale: 0.4, opacity: 0 }}
-                        animate={{ scale: 1.1, opacity: 1 }}
-                        exit={{ scale: 1.4, opacity: 0 }}
-                        transition={{ duration: 0.35 }}
-                        className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-[2px]"
-                      >
-                        <div className="w-24 h-24 rounded-full bg-[#FFCCD5] border-4 border-[#2C2824] shadow-[4px_4px_0px_#2C2824] flex items-center justify-center font-display font-black text-5xl text-[#2C2824]">
-                          {countdown}
+                      {/* Countdown Overlay */}
+                      <AnimatePresence>
+                        {countdown !== null && countdown > 0 && (
+                          <motion.div
+                            key={countdown}
+                            initial={{ scale: 0.4, opacity: 0 }}
+                            animate={{ scale: 1.1, opacity: 1 }}
+                            exit={{ scale: 1.4, opacity: 0 }}
+                            transition={{ duration: 0.35 }}
+                            className="absolute inset-0 flex items-center justify-center bg-black/30 backdrop-blur-[2px]"
+                          >
+                            <div className="w-24 h-24 rounded-full bg-[#FFCCD5] border-4 border-[#2C2824] shadow-[4px_4px_0px_#2C2824] flex items-center justify-center font-display font-black text-5xl text-[#2C2824]">
+                              {countdown}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Camera disabled message */}
+                      {!cameraActive && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#FAF5EE] p-6 text-center space-y-3">
+                          <div className="w-14 h-14 rounded-2xl bg-[#FFE4E6] border-2 border-[#2C2824] flex items-center justify-center text-2xl shadow-[3px_3px_0px_#2C2824]">
+                            📷
+                          </div>
+                          <p className="font-display font-black text-base text-[#2C2824]">
+                            Kamera belum aktif
+                          </p>
+                          <button
+                            onClick={startCamera}
+                            className="neu-btn neu-btn-pink text-xs py-2 px-4 shadow-[2px_2px_0px_#2C2824]"
+                          >
+                            Nyalakan Kamera
+                          </button>
                         </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                      )}
 
-                  {/* Camera Off Placeholder */}
-                  {!cameraActive && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#FAF5EE] p-6 text-center space-y-3">
-                      <div className="w-14 h-14 rounded-2xl bg-[#FFE4E6] border-2 border-[#2C2824] flex items-center justify-center text-2xl shadow-[3px_3px_0px_#2C2824]">
-                        📷
+                      {/* "It's your turn" pulsating pill */}
+                      {sessionMode === "collab" && (
+                        <div className="absolute top-3 left-3 bg-[#FEF08A] border-2 border-[#2C2824] px-3.5 py-1 rounded-full text-xs font-display font-black text-[#2C2824] shadow-[2px_2px_0px_#2C2824] animate-bounce">
+                          👉 Giliranmu Pose untuk Grid {currentTurnSlot + 1}! 📸
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    /* Waiting view when it's partner's turn */
+                    <div className="w-full h-full bg-[#FAF5EE] p-8 flex flex-col items-center justify-center text-center space-y-4">
+                      <div className="w-20 h-20 rounded-3xl bg-[#FFCCD5] border-2 border-[#2C2824] shadow-[4px_4px_0px_#2C2824] flex items-center justify-center text-4xl animate-bounce">
+                        {assignedShooterForCurrentSlot === "jane" ? "🌸" : "💻"}
                       </div>
-                      <p className="font-display font-black text-base text-[#2C2824]">
-                        Camera is currently disabled
-                      </p>
-                      <button
-                        onClick={startCamera}
-                        className="neu-btn neu-btn-pink text-xs py-2 px-4 shadow-[2px_2px_0px_#2C2824]"
-                      >
-                        Turn on Camera
-                      </button>
-                    </div>
-                  )}
+                      <div className="space-y-1">
+                        <h3 className="font-display font-black text-xl text-[#2C2824]">
+                          {assignedShooterForCurrentSlot === "jane" ? "Jane lagi pose untuk Grid " : "Josh lagi pose untuk Grid "}
+                          {currentTurnSlot + 1}...
+                        </h3>
+                        <p className="font-hand text-lg text-[#7A7269]">
+                          tunggu yaa, fotonya bakal langsung muncul di layar kamu! ♡
+                        </p>
+                      </div>
 
-                  {/* Active slot indicator pill */}
-                  {isShootingSession && activeSlot !== null && (
-                    <div className="absolute top-3 left-3 bg-[#FEF08A] border-2 border-[#2C2824] px-3 py-1 rounded-full text-xs font-display font-black text-[#2C2824] shadow-[2px_2px_0px_#2C2824] animate-bounce">
-                      Capturing Pose {activeSlot + 1} of {maxSlots} 📸
+                      {/* Partner countdown display if active */}
+                      {partnerCountdown && (
+                        <div className="bg-[#FEF08A] border-2 border-[#2C2824] px-4 py-2 rounded-2xl shadow-[3px_3px_0px_#2C2824] font-display font-black text-xl animate-pulse">
+                          📸 Menjepret dalam: {partnerCountdown.count} detik!
+                        </div>
+                      )}
+
+                      <div className="pt-2 text-xs text-[#7A7269] font-body flex items-center gap-1.5">
+                        <Sparkles size={14} className="text-amber-500" />
+                        <span>Siapkan pose manismu untuk grid berikutnya!</span>
+                      </div>
                     </div>
                   )}
                 </div>
 
                 {/* Shutter Action Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-                  <button
-                    onClick={runAutoShootSession}
-                    disabled={isShootingSession || !cameraActive}
-                    className="flex-1 neu-btn neu-btn-pink py-3 px-5 text-sm sm:text-base font-display font-black shadow-[4px_4px_0px_#2C2824] flex items-center justify-center gap-2 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"
-                  >
-                    <Play size={18} />
-                    <span>{isShootingSession ? "Capturing 4-Cuts..." : "Start 4-Cuts Auto Session (3s)"}</span>
-                  </button>
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  {sessionMode === "collab" ? (
+                    <>
+                      {isMyTurnInCollab ? (
+                        <button
+                          onClick={() => takeTurnShot(currentTurnSlot)}
+                          disabled={isShootingSession || !cameraActive}
+                          className="flex-1 neu-btn neu-btn-pink py-3 px-5 text-sm sm:text-base font-display font-black shadow-[4px_4px_0px_#2C2824] flex items-center justify-center gap-2 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"
+                        >
+                          <Play size={18} />
+                          <span>
+                            {isShootingSession
+                              ? "Menjepret..."
+                              : `Jepret Grid ${currentTurnSlot + 1} (Hitung Mundur 3s) 📸`}
+                          </span>
+                        </button>
+                      ) : (
+                        <div className="flex-1 py-3 px-4 rounded-xl border-2 border-[#2C2824]/30 bg-[#FAF5EE] text-center font-display font-bold text-xs text-[#7A7269]">
+                          ⏳ Menunggu pasanganmu mengambil foto Grid {currentTurnSlot + 1}...
+                        </div>
+                      )}
 
-                  <button
-                    onClick={() => {
-                      const nextEmpty = photos.findIndex((p, idx) => idx < maxSlots && !p);
-                      takeSingleShot(nextEmpty !== -1 ? nextEmpty : 0);
-                    }}
-                    disabled={isShootingSession || !cameraActive}
-                    className="neu-btn bg-[#BAE6FD] hover:bg-[#93C5FD] py-3 px-4 text-xs sm:text-sm font-display font-bold border-2 border-[#2C2824] shadow-[3px_3px_0px_#2C2824] flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    <Camera size={16} />
-                    <span>Manual 1-Shot</span>
-                  </button>
+                      {/* Upload for this turn */}
+                      {isMyTurnInCollab && (
+                        <label className="neu-btn bg-[#BAE6FD] hover:bg-[#93C5FD] py-3 px-3 text-xs font-display font-bold border-2 border-[#2C2824] shadow-[3px_3px_0px_#2C2824] flex items-center gap-1 cursor-pointer">
+                          <Upload size={14} />
+                          <span>Pilih Foto</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = () => {
+                                const dataUrl = reader.result as string;
+                                setPhotos((prev) => {
+                                  const copy = [...prev];
+                                  copy[currentTurnSlot] = dataUrl;
+                                  return copy;
+                                });
+                                if (channelRef.current) {
+                                  channelRef.current.send({
+                                    type: "broadcast",
+                                    event: "slot-captured",
+                                    payload: { slotIndex: currentTurnSlot, dataUrl, shooter: myRole },
+                                  });
+                                }
+                                setCurrentTurnSlot((prev) => (prev + 1 < maxSlots ? prev + 1 : 0));
+                              };
+                              reader.readAsDataURL(file);
+                            }}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </>
+                  ) : (
+                    /* Solo Mode Shutter */
+                    <>
+                      <button
+                        onClick={runSoloAutoSession}
+                        disabled={isShootingSession || !cameraActive}
+                        className="flex-1 neu-btn neu-btn-pink py-3 px-5 text-sm sm:text-base font-display font-black shadow-[4px_4px_0px_#2C2824] flex items-center justify-center gap-2 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"
+                      >
+                        <Play size={18} />
+                        <span>{isShootingSession ? "Menjepret..." : "Mulai Sesi 4-Cuts Otomatis (3s)"}</span>
+                      </button>
 
+                      <button
+                        onClick={() => takeTurnShot(currentTurnSlot)}
+                        disabled={isShootingSession || !cameraActive}
+                        className="neu-btn bg-[#BAE6FD] hover:bg-[#93C5FD] py-3 px-4 text-xs font-display font-bold border-2 border-[#2C2824] shadow-[3px_3px_0px_#2C2824] flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Camera size={16} />
+                        <span>Manual 1-Shot</span>
+                      </button>
+                    </>
+                  )}
+
+                  {/* Reset Round */}
                   <button
-                    onClick={resetAllPhotos}
+                    onClick={resetEntireSession}
                     className="p-3 rounded-2xl border-2 border-[#2C2824] bg-[#FFFDF9] hover:bg-rose-50 text-[#7A7269] hover:text-rose-600 shadow-[2px_2px_0px_#2C2824] transition-colors"
-                    title="Clear all photos"
+                    title="Mulai strip baru dari awal"
                   >
-                    <Trash2 size={18} />
+                    <RotateCcw size={18} />
                   </button>
                 </div>
               </div>
 
-              {/* 4 Thumbnail Slot Trays (Click to Retake individual photo) */}
-              <div className="neu-box p-4 bg-[#FFFDF9] border-[2px] border-[#2C2824] shadow-[4px_4px_0px_#2C2824] rounded-2xl space-y-2">
-                <div className="flex items-center justify-between text-xs font-display font-bold text-[#7A7269]">
-                  <span>Slot Photos (Click any slot to retake):</span>
-                  <span>{photos.filter((p, i) => i < maxSlots && !!p).length} / {maxSlots} photos</span>
+              {/* Grid Slots Turn Manager (Ganti-Gantian 1, 2, 3, 4) */}
+              <div className="neu-box p-4 bg-[#FFFDF9] border-[2px] border-[#2C2824] shadow-[4px_4px_0px_#2C2824] rounded-2xl space-y-3">
+                <div className="flex items-center justify-between text-xs font-display font-bold text-[#2C2824]">
+                  <span className="flex items-center gap-1.5">
+                    <span>Aturan Giliran Grid (Ganti-gantian):</span>
+                  </span>
+                  <span className="text-[#7A7269] font-normal">
+                    {photos.filter((p, i) => i < maxSlots && !!p).length} / {maxSlots} terisi
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-4 gap-2.5">
                   {Array.from({ length: maxSlots }).map((_, idx) => {
                     const src = photos[idx];
+                    const shooter = photoShooters[idx] || slotAssignments[idx];
+                    const isTarget = currentTurnSlot === idx;
+
                     return (
                       <div
                         key={idx}
-                        onClick={() => takeSingleShot(idx)}
+                        onClick={() => {
+                          if (sessionMode === "solo" || isMyTurnInCollab) {
+                            setCurrentTurnSlot(idx);
+                          }
+                        }}
                         className={`relative aspect-[4/3] rounded-xl border-2 overflow-hidden cursor-pointer group transition-all ${
-                          src
+                          isTarget
+                            ? "ring-4 ring-rose-400/50 border-[#2C2824] -translate-y-1 shadow-[3px_3px_0px_#2C2824]"
+                            : src
                             ? "border-[#2C2824] shadow-[2px_2px_0px_#2C2824]"
-                            : "border-dashed border-[#2C2824]/40 bg-[#FAF5EE] hover:bg-[#FFE4E6]/50"
+                            : "border-dashed border-[#2C2824]/40 bg-[#FAF5EE]"
                         }`}
-                        title={`Click to snap Slot ${idx + 1}`}
                       >
                         {src ? (
                           <>
                             <img
                               src={src}
-                              alt={`Slot ${idx + 1}`}
+                              alt={`Grid ${idx + 1}`}
                               className="w-full h-full object-cover"
                               style={{ filter: selectedFilter.css }}
                             />
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                resetSlot(idx);
-                              }}
-                              className="absolute top-1 right-1 w-5 h-5 rounded-md bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              ✕
-                            </button>
+                            {/* Shooter Badge Tag */}
+                            <div className="absolute bottom-1 left-1 bg-black/75 px-1.5 py-0.5 rounded text-[9px] font-display font-bold text-white flex items-center gap-0.5">
+                              <span>{shooter === "jane" ? "🌸 Jane" : "💻 Josh"}</span>
+                            </div>
                           </>
                         ) : (
-                          <div className="w-full h-full flex flex-col items-center justify-center text-[#7A7269] text-xs font-display font-bold">
-                            <Camera size={14} className="mb-0.5 opacity-60" />
-                            <span>Slot {idx + 1}</span>
+                          <div className="w-full h-full flex flex-col items-center justify-center p-1 text-center">
+                            <span className="text-sm">{shooter === "jane" ? "🌸" : "💻"}</span>
+                            <span className="text-[10px] font-display font-bold text-[#2C2824] mt-0.5">
+                              Grid {idx + 1}
+                            </span>
+                            <span className="text-[9px] text-[#7A7269] font-body">
+                              {shooter === "jane" ? "Jane" : "Josh"}
+                            </span>
                           </div>
+                        )}
+
+                        {/* Turn Indicator Dot */}
+                        {isTarget && (
+                          <div className="absolute top-1 right-1 w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
                         )}
                       </div>
                     );
                   })}
                 </div>
+
+                {/* Option to Swap Assignment */}
+                {sessionMode === "collab" && (
+                  <div className="flex items-center justify-between text-[11px] text-[#7A7269] pt-1">
+                    <span>Mau ubah urutan? Klik tombol tukar:</span>
+                    <button
+                      onClick={() => {
+                        setSlotAssignments((prev) => [prev[1], prev[0], prev[3], prev[2]]);
+                      }}
+                      className="text-xs font-display font-bold text-[#2C2824] hover:text-rose-600 flex items-center gap-1"
+                    >
+                      <Shuffle size={12} />
+                      <span>Tukar Urutan Giliran</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* 🎨 CUSTOMIZE DRAWER: Frames, Layouts, Filters & Stickers */}
+              {/* 🎨 CUSTOMIZE DRAWER: 10 Frames, Filters, Stickers */}
               <div className="neu-box p-5 bg-[#FFFDF9] border-[2.5px] border-[#2C2824] shadow-[6px_6px_0px_#2C2824] rounded-3xl space-y-5">
                 {/* 1. Layout Chooser */}
                 <div className="space-y-2">
-                  <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824] flex items-center gap-1.5">
-                    <span>1. Choose Layout:</span>
+                  <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824]">
+                    1. Pilih Tata Letak Strip:
                   </label>
                   <div className="grid grid-cols-3 gap-2">
                     {[
@@ -1034,7 +1473,7 @@ export default function PhotoboothPage() {
                         key={l.id}
                         type="button"
                         onClick={() => setSelectedLayout(l.id as PhotoboothLayout)}
-                        className={`py-2 px-2.5 rounded-xl border-2 text-xs font-display font-bold flex items-center justify-center gap-1.5 transition-all ${
+                        className={`py-2 px-2 rounded-xl border-2 text-xs font-display font-bold flex items-center justify-center gap-1.5 transition-all ${
                           selectedLayout === l.id
                             ? "bg-[#FFCCD5] border-[#2C2824] shadow-[2px_2px_0px_#2C2824] -translate-y-0.5"
                             : "bg-[#FAF5EE] border-[#2C2824]/30 hover:bg-[#FFFDF9]"
@@ -1047,12 +1486,12 @@ export default function PhotoboothPage() {
                   </div>
                 </div>
 
-                {/* 2. Custom Cute Frames (10 Choices) */}
+                {/* 2. 10 Custom Cute Frames */}
                 <div className="space-y-2">
                   <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824] flex items-center justify-between">
-                    <span>2. Cute Frame Theme (10 Choices):</span>
+                    <span>2. Pilihan Frame Lucu (10 Tema):</span>
                     <span className="text-[#7A7269] normal-case font-body font-normal text-xs">
-                      Selected: <strong className="text-[#2C2824] font-display">{selectedTheme.name}</strong>
+                      Aktif: <strong className="text-[#2C2824] font-display">{selectedTheme.name}</strong>
                     </span>
                   </label>
 
@@ -1063,7 +1502,7 @@ export default function PhotoboothPage() {
                         <button
                           key={theme.id}
                           type="button"
-                          onClick={() => setSelectedTheme(theme)}
+                          onClick={() => handleThemeChange(theme)}
                           className={`p-2.5 rounded-2xl border-2 text-left transition-all relative overflow-hidden flex flex-col justify-between h-[76px] ${
                             active
                               ? "border-[#2C2824] shadow-[3px_3px_0px_#2C2824] -translate-y-1 ring-2 ring-[#2C2824]/10"
@@ -1091,10 +1530,10 @@ export default function PhotoboothPage() {
                   </div>
                 </div>
 
-                {/* 3. Photo Filters */}
+                {/* 3. Aesthetic Filters */}
                 <div className="space-y-2">
                   <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824]">
-                    3. Aesthetic Filter:
+                    3. Filter Estetik:
                   </label>
                   <div className="flex flex-wrap gap-2">
                     {PHOTO_FILTERS.map((f) => {
@@ -1103,7 +1542,7 @@ export default function PhotoboothPage() {
                         <button
                           key={f.id}
                           type="button"
-                          onClick={() => setSelectedFilter(f)}
+                          onClick={() => handleFilterChange(f)}
                           className={`px-3 py-1.5 rounded-xl border-2 text-xs font-display font-bold transition-all ${
                             active
                               ? "bg-[#D8D2FF] border-[#2C2824] shadow-[2px_2px_0px_#2C2824] -translate-y-0.5"
@@ -1117,12 +1556,12 @@ export default function PhotoboothPage() {
                   </div>
                 </div>
 
-                {/* 4. Stickers & Caption Text */}
+                {/* 4. Stickers & Caption */}
                 <div className="space-y-3 pt-2 border-t-2 border-[#2C2824]/10">
                   <div className="space-y-1.5">
                     <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824] flex items-center gap-1.5">
                       <Smile size={14} />
-                      <span>Click to Add Cute Stickers:</span>
+                      <span>Klik untuk Pasang Stiker Lucu:</span>
                     </label>
                     <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-[#FAF5EE] border border-[#2C2824]/20">
                       {STICKER_LIST.map((emoji) => (
@@ -1138,12 +1577,11 @@ export default function PhotoboothPage() {
                     </div>
                   </div>
 
-                  {/* Caption input */}
                   <div className="space-y-1.5">
                     <label className="font-display font-bold text-xs uppercase tracking-wider text-[#2C2824] flex items-center justify-between">
                       <span className="flex items-center gap-1.5">
                         <Type size={14} />
-                        <span>Bottom Handwritten Caption:</span>
+                        <span>Tulisan Tangan Caption Bawah:</span>
                       </span>
                       <label className="flex items-center gap-1 text-[11px] font-normal cursor-pointer">
                         <input
@@ -1152,13 +1590,13 @@ export default function PhotoboothPage() {
                           onChange={(e) => setShowDate(e.target.checked)}
                           className="accent-[#2C2824]"
                         />
-                        <span>Show Date</span>
+                        <span>Tampilkan Tanggal</span>
                       </label>
                     </label>
                     <input
                       type="text"
                       value={captionText}
-                      onChange={(e) => setCaptionText(e.target.value)}
+                      onChange={(e) => handleCaptionChange(e.target.value)}
                       placeholder="e.g. 'jane × josh • 28 mei 2026 ♡'"
                       className="w-full border-2 border-[#2C2824] rounded-xl px-3.5 py-2 text-sm font-hand bg-[#FAF5EE] focus:bg-[#FFFDF9] focus:outline-none shadow-[2px_2px_0px_#2C2824]"
                     />
@@ -1171,12 +1609,12 @@ export default function PhotoboothPage() {
             <div className="lg:col-span-5 space-y-4">
               <div className="flex items-center justify-between px-1">
                 <span className="font-display font-black text-sm text-[#2C2824] flex items-center gap-1.5">
-                  <span>🎞️ Live Photostrip Print Preview</span>
+                  <span>🎞️ Preview Cetak Photostrip Bersama</span>
                 </span>
-                <span className="text-xs text-[#7A7269] font-body">Ready for printing</span>
+                <span className="text-xs text-[#7A7269] font-body">Realtime Sync</span>
               </div>
 
-              {/* ─── REALTIME RENDERED PHOTOSTRIP PREVIEW ─── */}
+              {/* ─── LIVE PHOTOSTRIP PREVIEW ─── */}
               <div
                 ref={photostripRef}
                 className="relative rounded-3xl border-[3.5px] shadow-[8px_8px_0px_#2C2824] transition-colors p-4 sm:p-5 select-none mx-auto max-w-[340px] sm:max-w-[360px]"
@@ -1185,7 +1623,7 @@ export default function PhotoboothPage() {
                   borderColor: selectedTheme.borderColor,
                 }}
               >
-                {/* 35mm Film Sprockets if film theme */}
+                {/* 35mm Film Sprockets */}
                 {selectedTheme.decorType === "film" && (
                   <>
                     <div className="absolute top-4 bottom-4 left-1.5 w-3.5 flex flex-col justify-between pointer-events-none">
@@ -1201,7 +1639,7 @@ export default function PhotoboothPage() {
                   </>
                 )}
 
-                {/* Top Badge Header */}
+                {/* Top Badge */}
                 <div className="text-center pt-1 pb-3">
                   <p
                     className="font-display font-black text-xs sm:text-sm tracking-wider uppercase"
@@ -1223,26 +1661,35 @@ export default function PhotoboothPage() {
                 >
                   {Array.from({ length: maxSlots }).map((_, idx) => {
                     const src = photos[idx];
+                    const shooter = photoShooters[idx] || slotAssignments[idx];
+
                     return (
                       <div
                         key={idx}
                         className="relative aspect-[4/3] rounded-lg border-2 border-[#2C2824] overflow-hidden bg-[#E5E7EB] shadow-sm flex items-center justify-center"
                       >
                         {src ? (
-                          <img
-                            src={src}
-                            alt={`Shot ${idx + 1}`}
-                            className="w-full h-full object-cover"
-                            style={{ filter: selectedFilter.css }}
-                          />
+                          <>
+                            <img
+                              src={src}
+                              alt={`Shot ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                              style={{ filter: selectedFilter.css }}
+                            />
+                            {/* Mini Shooter Pill */}
+                            <div className="absolute top-1 left-1 bg-black/60 px-1.5 py-0.5 rounded text-[8px] font-display font-bold text-white flex items-center gap-1">
+                              <span>{shooter === "jane" ? "🌸 Jane" : "💻 Josh"}</span>
+                            </div>
+                          </>
                         ) : (
                           <div className="text-center p-2 text-[#9CA3AF]">
                             <Camera size={20} className="mx-auto mb-1 opacity-50" />
-                            <p className="font-hand text-sm">pose {idx + 1} ♡</p>
+                            <p className="font-hand text-sm">
+                              grid {idx + 1} ({shooter === "jane" ? "Jane 🌸" : "Josh 💻"})
+                            </p>
                           </div>
                         )}
 
-                        {/* Film index marker */}
                         {selectedTheme.decorType === "film" && (
                           <div className="absolute bottom-1 right-1 text-[9px] font-mono text-[#EF4444] font-bold px-1 bg-black/70 rounded">
                             ▲ 2{idx + 1}A
@@ -1263,7 +1710,7 @@ export default function PhotoboothPage() {
                         top: `${stk.y}%`,
                         transform: "translate(-50%, -50%)",
                       }}
-                      title="Click to remove sticker"
+                      title="Klik untuk hapus stiker"
                     >
                       {stk.emoji}
                     </div>
@@ -1296,7 +1743,7 @@ export default function PhotoboothPage() {
                   className="w-full neu-btn neu-btn-pink py-3 px-4 font-display font-black text-sm shadow-[3px_3px_0px_#2C2824] flex items-center justify-center gap-2 disabled:opacity-50"
                 >
                   <Download size={16} />
-                  <span>{isExporting ? "Rendering High-Res..." : "Download High-Res PNG 📥"}</span>
+                  <span>{isExporting ? "Rendering High-Res..." : "Download Strip High-Res PNG 📥"}</span>
                 </button>
 
                 {isAdmin && (
@@ -1306,7 +1753,7 @@ export default function PhotoboothPage() {
                     className="w-full neu-btn bg-[#BAE6FD] hover:bg-[#93C5FD] py-2.5 px-4 font-display font-bold text-xs border-2 border-[#2C2824] shadow-[2px_2px_0px_#2C2824] flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     <Heart size={14} className="fill-[#2C2824]" />
-                    <span>{isSavingMemory ? "Saving to Scrapbook..." : "Save Directly to Memories (/memories) 🌸"}</span>
+                    <span>{isSavingMemory ? "Menyimpan ke Scrapbook..." : "Simpan ke Galeri Kenangan (/memories) 🌸"}</span>
                   </button>
                 )}
               </div>
